@@ -4,7 +4,8 @@
    变量直接以 atom 值引用，无需符号解析。"
   (:require [top.kzre.krro.core.keymap :as km]
             [top.kzre.krro.core.hook :as hook]
-            [top.kzre.krro.core.custom :as custom]))
+            [top.kzre.krro.core.custom :as custom]
+            [top.kzre.krro.core.ui.protocol :as ui]))
 
 (defonce ^:private mode-registry (atom {}))
 
@@ -59,13 +60,17 @@
       (custom/push-local-value! var-atom default))
     (swap! project-atom assoc-in [:krro/modes :major] mode-id)
     (km/push-keymap! (:mode/keymap spec))
+    ;; 渲染 UI 布局（若存在）
+    (when-let [layout (:mode/layout spec)]
+      (ui/render-layout! layout))
     (when-let [on-enter (get-in spec [:mode/hooks :on-enter])]
       (hook/run-hooks on-enter))
     (when-let [after-hook (:mode/after-hook spec)]
       (hook/run-hooks after-hook))))
 
-(defn deactivate-mode! [project-atom spec]
+(defn deactivate-mode!
   "外部停用（传入 spec），会解析 spec 的模式 ID。"
+  [project-atom spec]
   (deactivate-mode-internal project-atom spec (resolve-variables (:mode/id spec))))
 
 (defn toggle-minor-mode! [project-atom mode-id]
