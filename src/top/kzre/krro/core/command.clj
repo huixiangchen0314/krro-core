@@ -21,7 +21,7 @@
   (get @command-registry id))
 
 (defn execute-command
-  "通过 swap! 执行命令，命令函数签名为 (fn [project & args] -> new-project)。"
+  "通过 swap! 执行命令，命令签名为 (fn [project & args] -> new-project)。"
   [project-atom id & args]
   (if-let [handler (lookup-command id)]
     (apply swap! project-atom handler args)
@@ -30,10 +30,10 @@
 (defmacro defcmd
   "轻量命令定义宏，自动注册。"
   [name & body]
-  (let [docstring? (string? (first body))
-        doc (when docstring? (first body))
-        body (if docstring? (rest body) body)
-        [params & fn-body] body
+  (let [[params & more] body
+        doc? (string? (first more))
+        doc (when doc? (first more))
+        fn-body (if doc? (rest more) more)
         cmd-id (keyword (str *ns*) (str name))]
     `(let [handler# (fn ~params ~@fn-body)]
        (register-command! ~cmd-id handler# :description ~doc)

@@ -1,0 +1,39 @@
+(ns top.kzre.krro.core.project-test
+  (:require [clojure.test :refer :all]
+            [top.kzre.krro.core.project :as proj]))
+
+(use-fixtures :each
+              (fn [f]
+                (proj/init-project!)
+                (f)))
+
+(deftest test-init-project
+  (is (= {:krro/meta   {:version "0.1.0"
+                        :name "Untitled"
+                        :created-at (get-in @proj/project [:krro/meta :created-at])
+                        :modified-at (get-in @proj/project [:krro/meta :modified-at])}
+          :krro/modes  {:major :krro.mode/fundamental
+                        :minors #{}}
+          :krro/plugins {:active #{}}}
+         @proj/project)))
+
+(deftest test-init-project-with-name
+  (proj/init-project! :name "MyProject")
+  (is (= "MyProject" (get-in @proj/project [:krro/meta :name]))))
+
+(deftest test-get-in-project
+  (is (= "Untitled" (proj/get-in-project [:krro/meta :name])))
+  (is (= :krro.mode/fundamental (proj/get-in-project [:krro/modes :major])))
+  (is (nil? (proj/get-in-project [:nonexistent :path])))
+  (is (= 42 (proj/get-in-project [:nonexistent :path] 42)))) ; default value
+
+(deftest test-update-project
+  (proj/update-project! #(assoc % :custom-key "hello"))
+  (is (= "hello" (proj/get-in-project [:custom-key])))
+  ;; Ensure the rest of the project is untouched
+  (is (= "Untitled" (proj/get-in-project [:krro/meta :name]))))
+
+(deftest test-update-project-multiple
+  (proj/update-project! #(update % :count (fnil inc 0)))
+  (proj/update-project! #(update % :count (fnil inc 0)))
+  (is (= 2 (proj/get-in-project [:count]))))
