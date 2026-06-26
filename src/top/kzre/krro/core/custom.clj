@@ -1,35 +1,37 @@
 (ns top.kzre.krro.core.custom
-  "用户配置系统，提供 defcustom 宏，声明可定制的全局变量。")
+  "用户配置系统，支持 defcustom 宏与模式局部变量覆盖。")
 
 (defonce custom-registry (atom {}))
 
-;; ── defcustom 宏 ─────────────────────────────────────
 (defmacro defcustom
-  "声明一个可定制变量，类似于 Emacs 的 defcustom。
-   name      - 变量名（symbol）
-   default   - 默认值
-   docstring - 文档字符串
-   &rest     - 可选键值对，支持 :type（如 :integer, :boolean, :string, :color）、
-               :group（分组 symbol）、:range、:options 等"
+  "声明一个可定制变量（atom），支持 :type, :group, :range 等。"
   [name default docstring & {:as opts}]
-  `(let [var# (quote ~name)]
-     ;; 注册到全局 custom registry
-     (swap! custom-registry assoc var#
-            (merge {:value ~default
-                    :default ~default
-                    :doc ~docstring}
-                   ~opts))
-     ;; 同时声明为动态变量
-     (defonce ~name (atom ~default))))
+  `(let [var# (quote ~name)
+         meta-map# (merge {:default ~default} ~opts)
+         a# (atom ~default)]
+     (swap! custom-registry assoc var# (assoc meta-map# :atom a#))
+     (defonce ~name a#)))
 
-;; ── 辅助函数 ─────────────────────────────────────────
 (defn get-custom [var]
-  (when-let [entry (get @custom-registry var)]
-    @var))
+  @var)
 
 (defn set-custom! [var value]
-  (when-let [entry (get @custom-registry var)]
-    (reset! var value)))
+  (reset! var value))
 
 (defn all-customs []
   @custom-registry)
+
+;; ── 局部变量栈（用于模式）──────────────────────
+(defn push-local-value! [custom-var value]
+  (alter-meta! custom-var update :local-stack (fnil conj []) value)
+  (reset! custom-var value))
+
+(defn pop-local-value! [custom-var]
+  (when-let [stack (:local-stack (meta custom-var))]
+    (let [new-stack (pop stack)]
+      (alter-meta! custom-var assoc :local-stack new-stack)
+      (if-let [restored (peek new-stack)]
+        (reset! custom-var restored)
+        ;; 恢复全局默认
+        (when-let [global (get @custom-registry (symbol (name custom-var)))]
+          (reset! custom-var (:default global)))))))
