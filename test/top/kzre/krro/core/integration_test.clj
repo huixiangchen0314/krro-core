@@ -65,7 +65,6 @@
                 (reset! km/echo-hook [])
                 (when-let [v (resolve 'top.kzre.krro.core.mode/mode-registry)]
                   (reset! @v {}))
-                ;; 重新注册 fundamental
                 (let [fund-spec (mode/make-major-mode :krro.mode/fundamental "Fundamental"
                                                       :parent nil
                                                       :layout [:v-box {:id :fundamental}]
@@ -84,42 +83,30 @@
     (cmd/register-command! :test.cmd/a test-cmd-a)
     (cmd/register-command! :test.cmd/b test-cmd-b)
 
-    ;; 激活主模式
     (mode/activate-major-mode! proj/project :test.major)
     (is (= :test.major (get-in @proj/project [:krro/modes :major])))
     (is (= [[:layout layout]] @(:render-log renderer)))
 
-    ;; 按键模拟: "a" 触发 test.cmd/a
-    ;; 先推入模式键图（已经在 activate 时推入了），只需调用 handle-key!
     (km/handle-key! :a)
     (is (= :cmd-a (:test/result @proj/project)))
 
-    ;; 按键 "b" 未在当前模式键图中定义，应被忽略（全局也没有）
     (km/handle-key! :b)
     (is (= :cmd-a (:test/result @proj/project))) ; 不变
 
-    ;; 切换 minor mode
     (let [minor (test-minor-spec :test.minor)]
       (mode/register-mode! minor)
       (mode/toggle-minor-mode! proj/project :test.minor)
       (is (contains? (get-in @proj/project [:krro/modes :minors]) :test.minor))
-      ;; minor mode 键图覆盖 major，此时 "b" 应能触发 test.cmd/b
       (km/handle-key! :b)
       (is (= :cmd-b (:test/result @proj/project)))
-
-      ;; 关闭 minor mode
       (mode/toggle-minor-mode! proj/project :test.minor)
       (is (not (contains? (get-in @proj/project [:krro/modes :minors]) :test.minor))))
 
-    ;; 停用主模式
-    ;; 停用主模式（回退到 fundamental）
     (mode/fundamental-activate proj/project)
     (is (= :krro.mode/fundamental (get-in @proj/project [:krro/modes :major])))
-    ;; 变量恢复
     (is (= 0 @my-var))))
 
 (deftest test-plugin-register-and-command
-  ;; 模拟一个插件，通过多方法注册命令
   (defmethod plugin/register-plugin! :test-plugin [p]
     (cmd/register-command! :test.plugin/cmd (fn [proj] (assoc proj :plugin/result :ok)))
     (swap! plugin/plugin-registry assoc (:id p) p)

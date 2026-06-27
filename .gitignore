@@ -9,4 +9,5 @@
 .idea/
 krro-core.iml
 
+.clj-kondo/
 target/
