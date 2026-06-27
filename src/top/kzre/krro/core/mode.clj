@@ -38,6 +38,21 @@
         (recur parent (merge (:mode/variables spec) vars)))
       vars)))
 
+(defn- resolve-keymap [mode-id]
+  (loop [id mode-id, parent-km nil]
+    (if-let [spec (get-mode-spec id)]
+      (let [own-km (:mode/keymap spec)
+            ;; 如果自有键图存在，且存在父键图，则组合
+            combined (if parent-km
+                       (if own-km
+                         (km/make-keymap (:keys own-km) parent-km)
+                         parent-km)
+                       own-km)]
+        (if-let [p (when-not (:mode/minor? spec) (:mode/parent spec))]
+          (recur p combined)
+          combined))
+      parent-km)))
+
 (defn- deactivate-mode-internal
   "停用模式核心逻辑，接收已解析的完整变量。"
   [project-atom spec all-vars]
@@ -47,24 +62,30 @@
   (when-let [on-exit (get-in spec [:mode/hooks :on-exit])]
     (hook/run-hooks on-exit)))
 
-(defn activate-major-mode! [project-atom mode-id]
+(defn activate-major-mode!
+  "激活指定 major mode。若已有活动 major mode 且不同，则先停用旧模式。
+   切换时依次：停用旧模式 → 设置局部变量 → 更新项目状态 → 推入键图 → 渲染布局 → 执行 hook。"
+  [project-atom mode-id]
+  (when-not (get-mode-spec mode-id)
+    (throw (ex-info "Mode not registered" {:mode-id mode-id})))
   (let [old-major (get-in @project-atom [:krro/modes :major])
-        spec (get-mode-spec mode-id)
-        all-vars (resolve-variables mode-id)]
-    (when-not (get-mode-spec mode-id)
-      (throw (ex-info "Mode not registered" {:mode-id mode-id})))
-    ;; 停用旧主模式
+        spec      (get-mode-spec mode-id)
+        all-vars  (resolve-variables mode-id)]
+    ;; 停用旧 major mode（如有）
     (when (and old-major (not= old-major mode-id))
       (when-let [old-spec (get-mode-spec old-major)]
         (deactivate-mode-internal project-atom old-spec (resolve-variables old-major))))
     ;; 设置局部变量
     (doseq [[var-atom {:keys [default]}] all-vars]
       (custom/push-local-value! var-atom default))
+    ;; 更新项目中的活动模式
     (swap! project-atom assoc-in [:krro/modes :major] mode-id)
-    (km/push-keymap! (:mode/keymap spec))
-    ;; 渲染 UI 布局（若存在）
+    ;; 激活继承链合并后的键图
+    (km/push-keymap! (resolve-keymap mode-id))
+    ;; 渲染模式声明的 UI 布局
     (when-let [layout (:mode/layout spec)]
       (ui/render-layout! layout))
+    ;; 运行 enter hook 和 after hook
     (when-let [on-enter (get-in spec [:mode/hooks :on-enter])]
       (hook/run-hooks on-enter))
     (when-let [after-hook (:mode/after-hook spec)]
@@ -96,20 +117,36 @@
         (when-let [after-hook (:mode/after-hook spec)]
           (hook/run-hooks after-hook))))))
 
-(defmacro define-major-mode
-  [name docstring & {:as opts}]
+;; Fundamental mode
+(let [spec (make-major-mode :krro.mode/fundamental "Fundamental"
+                            :layout [:v-box {:id :fundamental}]
+                            :keymap (km/make-keymap {}))]
+  (register-mode! spec))
+
+(defn fundamental-activate [project-atom]
+  (activate-major-mode! project-atom :krro.mode/fundamental))
+
+
+(defmacro define-major-mode [name docstring & {:as opts}]
   (let [mode-id (keyword (str *ns*) (str name))
-        activate-fn (symbol (str name "-activate"))]
+        activate-fn (symbol (str name "-activate"))
+        hook-sym (symbol (str name "-hook"))]   ;; 命名 hook
     `(do
-       (register-mode! (make-major-mode ~mode-id ~docstring ~@(flatten (seq opts))))
+       (defonce ~hook-sym (hook/make-hook))
+       (register-mode! (make-major-mode ~mode-id ~docstring
+                                        ~@(flatten (seq (assoc opts :after-hook hook-sym)))))
        (defn ~activate-fn [project-atom#] (activate-major-mode! project-atom# ~mode-id))
        (def ~name ~mode-id))))
 
 (defmacro define-minor-mode
+  "定义一个副模式并注册。与 major mode 对称，自动创建公开的 after-hook。"
   [name docstring & {:as opts}]
-  (let [mode-id (keyword (str *ns*) (str name))
-        toggle-fn (symbol (str name "-toggle"))]
+  (let [mode-id    (keyword (str *ns*) (str name))
+        toggle-fn  (symbol (str name "-toggle"))
+        hook-sym   (symbol (str name "-hook"))]   ;; 公开的命名 hook
     `(do
-       (register-mode! (make-minor-mode ~mode-id ~docstring ~@(flatten (seq opts))))
+       (defonce ~hook-sym (hook/make-hook))
+       (register-mode! (make-minor-mode ~mode-id ~docstring
+                                        ~@(flatten (seq (assoc opts :after-hook hook-sym)))))
        (defn ~toggle-fn [project-atom#] (toggle-minor-mode! project-atom# ~mode-id))
        (def ~name ~mode-id))))

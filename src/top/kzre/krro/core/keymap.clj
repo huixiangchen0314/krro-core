@@ -1,8 +1,12 @@
 (ns top.kzre.krro.core.keymap
   "快捷键系统，支持全局键图、模式局部键图栈以及键序列处理。
    提供 handle-key! 作为平台无关的按键分派入口。"
-  (:require [top.kzre.krro.core.command :as cmd]
-            [top.kzre.krro.core.project :as proj]))
+  (:require
+   [top.kzre.krro.core.command :as cmd]
+   [top.kzre.krro.core.hook :as hook]
+   [top.kzre.krro.core.project :as proj]))
+
+(defonce echo-hook (hook/make-hook))
 
 ;; ── 键图数据结构与查找 ──────────────────────────
 (defn make-keymap
@@ -17,11 +21,7 @@
         (lookup-key (:parent keymap) key-desc))))
 
 ;; ── 全局键图 ────────────────────────────────
-(defonce global-keymap
-         (atom (make-keymap {:u :krro.command/undo
-                             :r :krro.command/redo
-                             :esc :krro.command/escape
-                             "C-z" :krro.command/undo})))
+(defonce global-keymap (atom (make-keymap {})))
 
 (defn set-global-key! [key-desc command-id]
   (swap! global-keymap #(update % :keys assoc key-desc command-id)))
@@ -55,17 +55,15 @@
     (cons top (current-keymaps))
     (current-keymaps)))
 
-(defn handle-key!
-  "处理单个按键 key-desc。
-   - 若绑定为子键图，推入前缀栈。
-   - 若绑定为命令关键字，执行并清空前缀。
-   - 否则清空前缀并提示。"
-  [key-desc]
+(defn handle-key! [key-desc]
   (let [kmaps (active-keymaps)
         binding (some #(lookup-key % key-desc) kmaps)]
     (cond
       (map? binding)
-      (swap! prefix-stack conj binding)
+      (do
+        (when-let [prefix-str (:prefix binding)]
+          (hook/run-hooks echo-hook prefix-str))
+        (swap! prefix-stack conj {:keymap binding}))
 
       (keyword? binding)
       (do
@@ -76,6 +74,9 @@
       (do
         (reset! prefix-stack [])
         (println "Undefined key sequence:" key-desc)))))
+
+(defn describe-key [key-desc]
+  (keep #(lookup-key % key-desc) (current-keymaps)))
 
 (defn reset-prefix!
   "取消当前键序列。"
