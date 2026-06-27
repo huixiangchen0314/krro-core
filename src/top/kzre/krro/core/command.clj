@@ -41,7 +41,7 @@
         doc? (string? (first more))
         doc (when doc? (first more))
         fn-body (if doc? (rest more) more)
-        cmd-id (keyword (str *ns*) (str name))]
+        cmd-id (keyword (str *ns*) (str name))]             ;; 保持命令符号的命名空间
     `(let [handler# (fn ~params ~@fn-body)]
        (register-command! ~cmd-id handler# :description ~doc)
        (def ~(vary-meta name assoc :command/id cmd-id) handler#))))
