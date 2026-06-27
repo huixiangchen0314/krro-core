@@ -128,7 +128,7 @@
   (let [p {:id :test-plug :type :test-plugin}]
     (is (= :test-plug (plugin/register-plugin! p)))
     (is (contains? (plugin/registered-plugins) :test-plug))
-    (cmd/execute-command proj/project :test.plugin/cmd)
+    (cmd/execute-command! proj/project :test.plugin/cmd)
     (is (= :ok (:plugin/result @proj/project)))))
 
 (deftest test-key-sequence

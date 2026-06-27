@@ -68,7 +68,7 @@
       (keyword? binding)
       (do
         (reset! prefix-stack [])
-        (cmd/execute-command proj/project binding))
+        (cmd/execute-command! proj/project binding))
 
       :else
       (do

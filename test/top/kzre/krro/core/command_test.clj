@@ -33,7 +33,7 @@
                   (reset! called true)
                   (assoc proj :modified true))]
     (cmd/register-command! :test.cmd/exec handler)
-    (cmd/execute-command proj/project :test.cmd/exec)
+    (cmd/execute-command! proj/project :test.cmd/exec)
     (is @called)
     (is (:modified @proj/project))))
 
@@ -43,13 +43,13 @@
                   (reset! captured [x y])
                   (assoc proj :sum (+ x y)))]
     (cmd/register-command! :test.cmd/with-args handler)
-    (cmd/execute-command proj/project :test.cmd/with-args 3 4)
+    (cmd/execute-command! proj/project :test.cmd/with-args 3 4)
     (is (= [3 4] @captured))
     (is (= 7 (:sum @proj/project)))))
 
 (deftest test-execute-unknown-command-throws
   (is (thrown? clojure.lang.ExceptionInfo
-               (cmd/execute-command proj/project :test.cmd/ghost))))
+               (cmd/execute-command! proj/project :test.cmd/ghost))))
 
 ;; defcmd 在顶层编译时就注册了命令
 (defcmd adder [project a b]
@@ -62,5 +62,5 @@
     (is (= "Add a and b into project." (-> handler meta :command/description)))))
 
 (deftest test-defcmd-execution
-  (cmd/execute-command proj/project :top.kzre.krro.core.command-test/adder 10 20)
+  (cmd/execute-command! proj/project :top.kzre.krro.core.command-test/adder 10 20)
   (is (= 30 (:result @proj/project))))

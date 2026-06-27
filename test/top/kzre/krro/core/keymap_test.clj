@@ -72,7 +72,7 @@
         ;; 模拟命令执行记录
         executed-commands (atom [])]
     ;; 用 with-redefs 替换 execute-command，避免真实修改项目
-    (with-redefs [cmd/execute-command (fn [proj id & args]
+    (with-redefs [cmd/execute-command! (fn [proj id & args]
                                         (swap! executed-commands conj id))]
       ;; 按 "C-x" 进入前缀
       (km/handle-key! "C-x")
@@ -98,7 +98,7 @@
 ;; ── 测试 handle-key! 直接命令（无前缀） ──────────
 (deftest test-direct-command
   (let [executed-commands (atom [])]
-    (with-redefs [cmd/execute-command (fn [proj id & args]
+    (with-redefs [cmd/execute-command! (fn [proj id & args]
                                         (swap! executed-commands conj [id args]))]
       (km/handle-key! :u)
       (is (= [[:krro.command/undo nil]] @executed-commands))

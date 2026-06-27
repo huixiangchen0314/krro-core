@@ -20,7 +20,7 @@
 (defn lookup-command [id]
   (get @command-registry id))
 
-(defn execute-command
+(defn execute-command!
   "通过 swap! 执行命令，带原子保护。
    命令签名为 (fn [project & args] -> new-project)。"
   [project-atom id & args]

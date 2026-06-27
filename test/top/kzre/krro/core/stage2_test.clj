@@ -80,7 +80,7 @@
     (hook/add-hook km/echo-hook echo-callback)
     (km/push-keymap! (km/make-keymap {"C-x" prefix-km}))
     ;; 用 with-redefs 阻止实际命令执行
-    (with-redefs [cmd/execute-command (fn [& _] nil)]
+    (with-redefs [cmd/execute-command! (fn [& _] nil)]
       (km/handle-key! "C-x")
       (is (= ["C-x"] @echoed))
       (is (= 1 (count @km/prefix-stack)))

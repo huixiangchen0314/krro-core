@@ -27,3 +27,12 @@
              :krro/modes  {:major :krro.mode/fundamental
                            :minors #{}}
              :krro/plugins {:active #{}}})))
+
+
+
+
+(defonce protected-keys
+         (atom #{:krro/meta :krro/modes :krro/plugins}))  ;; 内核默认保护
+
+(defn register-protected-key! [kw]
+  (swap! protected-keys conj kw))
