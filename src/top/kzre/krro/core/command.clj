@@ -2,7 +2,7 @@
   "全局命令注册与执行，设计灵感来自 Emacs 的 M-x。
    命令是普通 Clojure 函数，附加元数据后注册到全局表。")
 
-(defonce ^:private command-registry (atom {}))
+(defonce command-registry (atom {}))
 
 (defn register-command!
   "注册命令。id 冲突时打印警告并覆盖。"

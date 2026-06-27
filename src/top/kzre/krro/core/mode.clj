@@ -28,8 +28,10 @@
          (when hooks {:mode/hooks hooks})
          (when after-hook {:mode/after-hook after-hook})))
 
+
 (defn register-mode! [spec] (swap! mode-registry assoc (:mode/id spec) spec))
 (defn get-mode-spec [id] (get @mode-registry id))
+
 
 (defn- resolve-variables
   "沿 parent 链合并变量声明。变量键是 atom 对象。"
@@ -95,10 +97,21 @@
     (when-let [after-hook (:mode/after-hook spec)]
       (hook/run-hooks after-hook))))
 
+
+;; Fundamental mode
+(let [spec (make-major-mode :krro.mode/fundamental "Fundamental"
+                            :layout [:v-box {:id :fundamental}]
+                            :keymap (km/make-keymap {}))]
+  (register-mode! spec))
+
+(defn fundamental-activate [project-atom]
+  (activate-major-mode! project-atom :krro.mode/fundamental))
+
 (defn deactivate-mode!
-  "外部停用（传入 spec），会解析 spec 的模式 ID。"
+  "停用指定模式，并自动回退到 fundamental 模式。"
   [project-atom spec]
-  (deactivate-mode-internal project-atom spec (resolve-variables (:mode/id spec))))
+  (deactivate-mode-internal project-atom spec (resolve-variables (:mode/id spec)))
+  (fundamental-activate project-atom))
 
 (defn toggle-minor-mode! [project-atom mode-id]
   (let [active-minors (get-in @project-atom [:krro/modes :minors])
@@ -121,14 +134,6 @@
         (when-let [after-hook (:mode/after-hook spec)]
           (hook/run-hooks after-hook))))))
 
-;; Fundamental mode
-(let [spec (make-major-mode :krro.mode/fundamental "Fundamental"
-                            :layout [:v-box {:id :fundamental}]
-                            :keymap (km/make-keymap {}))]
-  (register-mode! spec))
-
-(defn fundamental-activate [project-atom]
-  (activate-major-mode! project-atom :krro.mode/fundamental))
 
 
 (defmacro define-major-mode
