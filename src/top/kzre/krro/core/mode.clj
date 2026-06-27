@@ -10,8 +10,10 @@
 (defonce ^:private mode-registry (atom {}))
 
 (defn make-major-mode
-  [id name & {:keys [parent keymap layout variables hooks after-hook]}]
-  (merge {:mode/id id, :mode/name name, :mode/parent (or parent :krro.mode/fundamental)}
+  [id name & {:keys [parent keymap layout variables hooks after-hook]
+              :or {parent :krro.mode/fundamental}}]
+  ;; :or 默认值仅在键不存在时生效，显式传入 nil 会保留 nil
+  (merge {:mode/id id, :mode/name name, :mode/parent parent}
          (when keymap {:mode/keymap keymap})
          (when layout {:mode/layout layout})
          (when variables {:mode/variables variables})
@@ -38,20 +40,22 @@
         (recur parent (merge (:mode/variables spec) vars)))
       vars)))
 
-(defn- resolve-keymap [mode-id]
-  (loop [id mode-id, parent-km nil]
-    (if-let [spec (get-mode-spec id)]
-      (let [own-km (:mode/keymap spec)
-            ;; 如果自有键图存在，且存在父键图，则组合
-            combined (if parent-km
-                       (if own-km
-                         (km/make-keymap (:keys own-km) parent-km)
-                         parent-km)
-                       own-km)]
-        (if-let [p (when-not (:mode/minor? spec) (:mode/parent spec))]
-          (recur p combined)
-          combined))
-      parent-km)))
+(defn- resolve-keymap
+  "沿父链构建键图，子键图的 :parent 指向父键图，实现继承查找。"
+  [mode-id]
+  (letfn [(build [id]
+            (if-let [spec (get-mode-spec id)]
+              (let [own-km   (:mode/keymap spec)
+                    parent-km (when-not (:mode/minor? spec)
+                                (when-let [p (:mode/parent spec)]
+                                  (build p)))]
+                (if parent-km
+                  (if own-km
+                    (km/make-keymap (:keys own-km) parent-km)
+                    parent-km)
+                  own-km))
+              nil))]
+    (build mode-id)))
 
 (defn- deactivate-mode-internal
   "停用模式核心逻辑，接收已解析的完整变量。"
@@ -127,26 +131,28 @@
   (activate-major-mode! project-atom :krro.mode/fundamental))
 
 
-(defmacro define-major-mode [name docstring & {:as opts}]
+(defmacro define-major-mode
+  [name docstring & {:as opts}]
   (let [mode-id (keyword (str *ns*) (str name))
         activate-fn (symbol (str name "-activate"))
-        hook-sym (symbol (str name "-hook"))]   ;; 命名 hook
+        hook-sym (symbol (str name "-hook"))]
     `(do
        (defonce ~hook-sym (hook/make-hook))
        (register-mode! (make-major-mode ~mode-id ~docstring
-                                        ~@(flatten (seq (assoc opts :after-hook hook-sym)))))
+                                        :after-hook ~hook-sym
+                                        ~@(flatten (seq (dissoc opts :after-hook)))))
        (defn ~activate-fn [project-atom#] (activate-major-mode! project-atom# ~mode-id))
        (def ~name ~mode-id))))
 
 (defmacro define-minor-mode
-  "定义一个副模式并注册。与 major mode 对称，自动创建公开的 after-hook。"
   [name docstring & {:as opts}]
-  (let [mode-id    (keyword (str *ns*) (str name))
-        toggle-fn  (symbol (str name "-toggle"))
-        hook-sym   (symbol (str name "-hook"))]   ;; 公开的命名 hook
+  (let [mode-id (keyword (str *ns*) (str name))
+        toggle-fn (symbol (str name "-toggle"))
+        hook-sym (symbol (str name "-hook"))]
     `(do
        (defonce ~hook-sym (hook/make-hook))
        (register-mode! (make-minor-mode ~mode-id ~docstring
-                                        ~@(flatten (seq (assoc opts :after-hook hook-sym)))))
+                                        :after-hook ~hook-sym
+                                        ~@(flatten (seq (dissoc opts :after-hook)))))
        (defn ~toggle-fn [project-atom#] (toggle-minor-mode! project-atom# ~mode-id))
        (def ~name ~mode-id))))

@@ -52,7 +52,7 @@
   "考虑前缀键后的完整查找链。"
   []
   (if-let [top (peek @prefix-stack)]
-    (cons top (current-keymaps))
+    (cons (:keymap top) (current-keymaps))   ;; 提取 :keymap
     (current-keymaps)))
 
 (defn handle-key! [key-desc]
