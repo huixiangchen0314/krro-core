@@ -15,14 +15,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>top.kzre</groupId>
-            <artifactId>krro-brush</artifactId>
-            <version>0.1.0</version>
-        </dependency>
-        <dependency>
-            <groupId>top.kzre</groupId>
-            <artifactId>krro-color</artifactId>
-            <version>0.1.0</version>
+            <groupId>org.clojure</groupId>
+            <artifactId>clojure</artifactId>
+            <version>1.11.1</version>
         </dependency>
     </dependencies>
 </project>
