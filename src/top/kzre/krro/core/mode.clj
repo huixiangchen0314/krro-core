@@ -51,6 +51,8 @@
   (let [old-major (get-in @project-atom [:krro/modes :major])
         spec (get-mode-spec mode-id)
         all-vars (resolve-variables mode-id)]
+    (when-not (get-mode-spec mode-id)
+      (throw (ex-info "Mode not registered" {:mode-id mode-id})))
     ;; 停用旧主模式
     (when (and old-major (not= old-major mode-id))
       (when-let [old-spec (get-mode-spec old-major)]
@@ -78,6 +80,8 @@
         enabled? (contains? active-minors mode-id)
         spec (get-mode-spec mode-id)
         all-vars (resolve-variables mode-id)]
+    (when-not (get-mode-spec mode-id)
+      (throw (ex-info "Mode not registered" {:mode-id mode-id})))
     (if enabled?
       (do
         (deactivate-mode-internal project-atom spec all-vars)

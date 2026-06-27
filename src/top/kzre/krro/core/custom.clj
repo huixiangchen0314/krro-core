@@ -21,8 +21,14 @@
 
 ;; ── 局部变量栈 ──────────────────────
 (defn push-local-value! [custom-var value]
-  (alter-meta! custom-var update :local-stack (fnil conj []) value)
-  (reset! custom-var value))
+  (let [old-stack (:local-stack (meta custom-var))]
+    (try
+      (alter-meta! custom-var update :local-stack (fnil conj []) value)
+      (reset! custom-var value)
+      (catch Exception e
+        ;; 回滚元数据栈
+        (alter-meta! custom-var assoc :local-stack old-stack)
+        (throw e)))))
 
 (defn pop-local-value! [custom-var]
   (when-let [stack (:local-stack (meta custom-var))]

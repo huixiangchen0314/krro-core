@@ -21,10 +21,17 @@
   (get @command-registry id))
 
 (defn execute-command
-  "通过 swap! 执行命令，命令签名为 (fn [project & args] -> new-project)。"
+  "通过 swap! 执行命令，带原子保护。
+   命令签名为 (fn [project & args] -> new-project)。"
   [project-atom id & args]
   (if-let [handler (lookup-command id)]
-    (apply swap! project-atom handler args)
+    (let [old-value @project-atom]
+      (try
+        (apply swap! project-atom handler args)
+        (catch Exception e
+          ;; 恢复旧值
+          (reset! project-atom old-value)
+          (throw (ex-info "Command execution failed" {:id id :args args} e)))))
     (throw (ex-info "Unknown command" {:id id}))))
 
 (defmacro defcmd
