@@ -84,6 +84,7 @@
 
 ;; Fundamental mode
 (let [spec (make-major-mode :krro.mode/fundamental "Fundamental"
+                            :parent nil
                             :layout [:v-box {:id :fundamental}]
                             :keymap (km/make-keymap {}))]
   (register-mode! spec))
