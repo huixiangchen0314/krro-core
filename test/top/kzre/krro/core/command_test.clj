@@ -1,11 +1,15 @@
 (ns top.kzre.krro.core.command-test
-  (:require [clojure.test :refer :all]
-            [top.kzre.krro.core.command :as cmd :refer [defcmd]]
-            [top.kzre.krro.core.project :as proj]))
+  (:require
+   [clojure.string :as str]
+   [clojure.test :refer :all]
+   [top.kzre.krro.core.command :as cmd :refer [defcmd]]
+   [top.kzre.krro.core.message :as msg]
+   [top.kzre.krro.core.project :as proj]))
 
 (use-fixtures :each
               (fn [f]
                 (proj/init-project!)
+                (reset! msg/messages [])
                 (f)))
 
 (deftest test-register-command
@@ -48,9 +52,12 @@
     (is (= [3 4] @captured))
     (is (= 7 (:sum @proj/project)))))
 
-(deftest test-execute-unknown-command-throws
-  (is (thrown? clojure.lang.ExceptionInfo
-               (cmd/execute-command! proj/project :test.cmd/ghost))))
+(deftest test-execute-unknown-command-errors
+  (reset! msg/messages [])
+  (cmd/execute-command! proj/project :test.cmd/ghost)
+  (is (some #(and (= (:type %) :error)
+                  (str/includes? (:content %) "Unknown command"))
+            @msg/messages)))
 
 (defcmd adder [project a b]
         :description "Add a and b into project."

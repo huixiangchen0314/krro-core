@@ -1,10 +1,12 @@
 (ns top.kzre.krro.core.keymap
   "快捷键系统，支持全局键图、模式局部键图栈以及键序列处理。
-   提供 handle-key! 作为平台无关的按键分派入口。"
+   提供 handle-key! 作为平台无关的按键分派入口。
+   错误信息通过消息系统输出。"
   (:require
-   [top.kzre.krro.core.command :as cmd]
-   [top.kzre.krro.core.hook :as hook]
-   [top.kzre.krro.core.project :as proj]))
+    [top.kzre.krro.core.command :as cmd]
+    [top.kzre.krro.core.hook :as hook]
+    [top.kzre.krro.core.project :as proj]
+    [top.kzre.krro.core.message :as msg]))
 
 (defonce echo-hook (hook/make-hook))
 
@@ -52,10 +54,13 @@
   "考虑前缀键后的完整查找链。"
   []
   (if-let [top (peek @prefix-stack)]
-    (cons (:keymap top) (current-keymaps))   ;; 提取 :keymap
+    (cons (:keymap top) (current-keymaps))
     (current-keymaps)))
 
-(defn handle-key! [key-desc]
+(defn handle-key!
+  "处理单个按键 key-desc。根据当前键图查找绑定，执行命令或进入前缀。
+   若命令执行失败，输出错误消息，并清空前缀栈。"
+  [key-desc]
   (let [kmaps (active-keymaps)
         binding (some #(lookup-key % key-desc) kmaps)]
     (cond
@@ -68,12 +73,15 @@
       (keyword? binding)
       (do
         (reset! prefix-stack [])
-        (cmd/execute-command! proj/project binding))
+        (try
+          (cmd/execute-command! proj/project binding)
+          (catch Exception e
+            (msg/error (str "Command execution failed for " binding ": " (.getMessage e))))))
 
       :else
       (do
         (reset! prefix-stack [])
-        (println "Undefined key sequence:" key-desc)))))
+        (msg/warn (str "Undefined key sequence: " key-desc))))))
 
 (defn describe-key [key-desc]
   (keep #(lookup-key % key-desc) (current-keymaps)))
