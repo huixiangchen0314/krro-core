@@ -20,16 +20,21 @@
 
 (defn- collect-args [interactor spec]
   (mapv (fn [s]
-          (cond
-            (= s :string) (i/read-text interactor "Enter value: ")
-            (= s :number) (i/read-number interactor "Enter number: ")
-            (and (vector? s) (= (first s) :choice))
-            (let [[_ opt] s
-                  options (if (fn? opt) (opt) opt)]
-              (i/read-choice interactor "Choose: " options))
-            :else (do
-                    (msg/error (str "Unsupported interactive spec: " s))
-                    nil)))
+          (let [;; 标准化为 [type prompt & opts]
+                [type prompt & opts] (if (keyword? s)
+                                       [s "Enter value: "]
+                                       s)
+                prompt (or prompt "Enter value: ")]
+            (case type
+              :string (i/read-text interactor prompt)
+              :number (i/read-number interactor prompt)
+              :choice (let [options-fn (first opts)
+                            options (if (fn? options-fn) (options-fn) options-fn)
+                            choice-prompt (or (second opts) "Choose: ")]
+                        (i/read-choice interactor choice-prompt options))
+              (do
+                (msg/error (str "Unsupported interactive spec: " type))
+                nil))))
   spec))
 
 (defn execute-command!
