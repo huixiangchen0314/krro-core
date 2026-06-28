@@ -36,3 +36,11 @@
 
 (defn register-protected-key! [kw]
   (swap! protected-keys conj kw))
+
+
+(defn user-data
+  "返回项目的用户数据部分，剔除所有受保护的键。"
+  ([]
+   (reduce dissoc @project @protected-keys))
+  ([project]
+   (reduce dissoc project @protected-keys)))
