@@ -1,7 +1,6 @@
 (ns top.kzre.krro.core.keymap
-  "快捷键系统，支持全局键图、模式局部键图栈以及键序列处理。
-   提供 handle-key! 作为平台无关的按键分派入口。
-   错误信息通过消息系统输出。"
+  "快捷键系统，支持全局键图、键图数据结构与按键分派。
+   所有与 Frame 相关的状态操作已移至 Frame 协议，此处仅提供纯函数。"
   (:require
     [top.kzre.krro.core.command :as cmd]
     [top.kzre.krro.core.hook :as hook]
@@ -27,40 +26,20 @@
 (defn set-global-key! [key-desc command-id]
   (swap! global-keymap #(update % :keys assoc key-desc command-id)))
 
-;; ── 模式局部键图栈 ──────────────────────────
-(defonce keymap-stack (atom ()))
-
-(defn push-keymap! [km]
-  (when km (swap! keymap-stack conj km)))
-
-(defn pop-keymap! []
-  (swap! keymap-stack rest))
-
-(defn current-keymaps
-  "返回当前有效的键图列表，优先级从高到低。"
-  []
-  (concat @keymap-stack [@global-keymap]))
-
-(defn lookup-key-in-context
-  "在当前上下文中查找 key-desc 的绑定。"
-  [key-desc]
-  (some #(lookup-key % key-desc) (current-keymaps)))
-
 ;; ── 键序列前缀栈 ───────────────────────────
 (defonce prefix-stack (atom ()))
 
-(defn- active-keymaps
-  "考虑前缀键后的完整查找链。"
-  []
-  (if-let [top (peek @prefix-stack)]
-    (cons (:keymap top) (current-keymaps))
-    (current-keymaps)))
+(defn lookup-key-in-context
+  "在给定的键图列表中查找 key-desc 的绑定。"
+  [key-desc keymaps-list]
+  (some #(lookup-key % key-desc) keymaps-list))
 
 (defn handle-key!
-  "处理单个按键 key-desc。根据当前键图查找绑定，执行命令或进入前缀。
-   若命令执行失败，输出错误消息，并清空前缀栈。"
-  [key-desc]
-  (let [kmaps (active-keymaps)
+  "处理单个按键 key-desc。需提供当前有效的键图列表（从 Frame/keymaps 获取）。"
+  [key-desc keymaps-list]
+  (let [kmaps (if-let [top (peek @prefix-stack)]
+                (cons (:keymap top) keymaps-list)
+                keymaps-list)
         binding (some #(lookup-key % key-desc) kmaps)]
     (cond
       (map? binding)
@@ -82,8 +61,10 @@
         (reset! prefix-stack [])
         (msg/warn (str "Undefined key sequence: " key-desc))))))
 
-(defn describe-key [key-desc]
-  (keep #(lookup-key % key-desc) (current-keymaps)))
+(defn describe-key
+  "描述键在给定键图列表中的绑定情况。"
+  [key-desc keymaps-list]
+  (keep #(lookup-key % key-desc) keymaps-list))
 
 (defn reset-prefix!
   "取消当前键序列。"

@@ -4,7 +4,8 @@
             [top.kzre.krro.core.project :as proj]
             [top.kzre.krro.core.keymap :as km]
             [top.kzre.krro.core.custom :as custom]
-            [top.kzre.krro.core.hook :as hook]))
+            [top.kzre.krro.core.hook :as hook]
+            [top.kzre.krro.core.frame :as frame]))
 
 ;; ── 变量必须在使用前定义 ──────────────────────────────
 (custom/defcustom my-test-var 0 "Test variable" :type :integer)
@@ -13,7 +14,6 @@
 (use-fixtures :each
               (fn [f]
                 (proj/init-project!)
-                (reset! km/keymap-stack ())
                 (reset! km/prefix-stack ())
                 (reset! km/global-keymap (km/make-keymap {:u :krro.command/undo}))
                 (reset! custom/custom-registry {})
@@ -29,6 +29,9 @@
                 (when-let [vb (resolve 'var-b)]
                   (reset! @vb 0)
                   (alter-meta! @vb dissoc :local-stack))
+                ;; 创建默认 Frame 并绑定到 *current-frame*
+                (let [f (frame/create-frame :id :test)]
+                  (alter-var-root #'frame/*current-frame* (constantly f)))
                 (f)))
 
 ;; ── 辅助函数 ────────────────────────────────────────────
@@ -80,57 +83,60 @@
 (deftest test-activate-major-mode
   (let [spec (sample-major-spec :test.major)
         _ (mode/register-mode! spec)
+        f frame/*current-frame*
         enter-called (atom false)
         exit-called (atom false)]
     (hook/add-hook (get-in spec [:mode/hooks :on-enter]) #(reset! enter-called true))
     (hook/add-hook (get-in spec [:mode/hooks :on-exit])  #(reset! exit-called true))
-    ;; 现在不需要传递 project-atom
-    (mode/activate-major-mode! :test.major)
-    (is (= :test.major (get-in @proj/project [:krro/modes :major])))
-    (is (= 1 (count @km/keymap-stack)))
+    (mode/activate-major-mode! :test.major f)
+    (is (= :test.major (frame/major-mode f)))
+    (is (= 2 (count (frame/keymaps f))))
     (is (= 10 @my-test-var))
     (is @enter-called)
     (is (not @exit-called))
-    (mode/deactivate-mode! spec)
-    (is (= 0 (count @km/keymap-stack)))
+    (mode/deactivate-mode! spec f)
+    ;; fundamental 模式激活后，栈中只有 fundamental 键图（深度 1）
+    (is (= 1 (count (frame/keymaps f))))
     (is (= 0 @my-test-var))
     (is @exit-called)))
 
 (deftest test-activate-major-mode-switch
   (let [old-spec (sample-major-spec :old.major)
         new-spec (sample-major-spec :new.major)
+        f frame/*current-frame*
         old-exit-called (atom false)]
     (mode/register-mode! old-spec)
     (mode/register-mode! new-spec)
     (hook/add-hook (get-in old-spec [:mode/hooks :on-exit]) #(reset! old-exit-called true))
-    (mode/activate-major-mode! :old.major)
-    (is (= :old.major (get-in @proj/project [:krro/modes :major])))
-    (mode/activate-major-mode! :new.major)
-    (is (= :new.major (get-in @proj/project [:krro/modes :major])))
+    (mode/activate-major-mode! :old.major f)
+    (is (= :old.major (frame/major-mode f)))
+    (mode/activate-major-mode! :new.major f)
+    (is (= :new.major (frame/major-mode f)))
     (is @old-exit-called)
-    (is (= 1 (count @km/keymap-stack)))))
+    (is (= 2 (count (frame/keymaps f))))))   ;; 新模式键图推入
 
 ;; ═══════════════════════════════════════════════════════════
 ;; 副模式切换
 ;; ═══════════════════════════════════════════════════════════
 (deftest test-toggle-minor-mode
   (let [minor (sample-minor-spec :test.minor)
+        f frame/*current-frame*
         enter-called (atom false)
         exit-called (atom false)]
     (mode/register-mode! minor)
     (hook/add-hook (get-in minor [:mode/hooks :on-enter]) #(reset! enter-called true))
     (hook/add-hook (get-in minor [:mode/hooks :on-exit])  #(reset! exit-called true))
-    (is (= #{} (get-in @proj/project [:krro/modes :minors])))
-    (mode/toggle-minor-mode! :test.minor)
-    (is (contains? (get-in @proj/project [:krro/modes :minors]) :test.minor))
+    (is (= #{} (frame/minor-modes f)))
+    (mode/toggle-minor-mode! :test.minor f)
+    (is (contains? (frame/minor-modes f) :test.minor))
     (is @enter-called)
     (is (= 20 @my-test-var))
-    (is (= 1 (count @km/keymap-stack)))
-    (mode/toggle-minor-mode! :test.minor)
-    (is (not (contains? (get-in @proj/project [:krro/modes :minors]) :test.minor)))
+    (is (= 2 (count (frame/keymaps f))))   ;; fundamental + minor
+    (mode/toggle-minor-mode! :test.minor f)
+    (is (not (contains? (frame/minor-modes f) :test.minor)))
     (is @exit-called)
     (is (= 0 @my-test-var))
-    (is (= 0 (count @km/keymap-stack)))))
+    (is (= 1 (count (frame/keymaps f))))))  ;; 回到 fundamental
 
 ;; ═══════════════════════════════════════════════════════════
 ;; 变量继承
@@ -142,13 +148,14 @@
                         (assoc :mode/variables {var-a {:default 100}}))
         child-spec  (-> (sample-major-spec :child.mode)
                         (assoc :mode/parent :parent.mode
-                               :mode/variables {var-b {:default 200}}))]
+                               :mode/variables {var-b {:default 200}}))
+        f frame/*current-frame*]
     (mode/register-mode! parent-spec)
     (mode/register-mode! child-spec)
-    (mode/activate-major-mode! :child.mode)
+    (mode/activate-major-mode! :child.mode f)
     (is (= 100 @var-a))
     (is (= 200 @var-b))
-    (mode/deactivate-mode! child-spec)
+    (mode/deactivate-mode! child-spec f)
     (is (= 0 @var-a))
     (is (= 0 @var-b))))
 
@@ -157,10 +164,11 @@
 ;; ═══════════════════════════════════════════════════════════
 (deftest test-after-hook
   (let [spec (sample-major-spec :test.after)
+        f frame/*current-frame*
         after-called (atom false)]
     (mode/register-mode! spec)
     (hook/add-hook (:mode/after-hook spec) #(reset! after-called true))
-    (mode/activate-major-mode! :test.after)
+    (mode/activate-major-mode! :test.after f)
     (is @after-called)))
 
 ;; ═══════════════════════════════════════════════════════════
@@ -172,10 +180,9 @@
                           :variables {my-test-var {:default 999}})
   (is (= :top.kzre.krro.core.mode-test/my-test-mode my-test-mode))
   (is (mode/get-mode-spec my-test-mode))
-  ;; 激活函数现在无参数
   (is (fn? my-test-mode-activate))
-  ;; 可调用 (my-test-mode-activate)
-  )
+  (my-test-mode-activate)
+  (is (= :top.kzre.krro.core.mode-test/my-test-mode (frame/major-mode frame/*current-frame*))))
 
 (deftest test-define-minor-mode-macro
   (mode/define-minor-mode my-test-minor "Test minor mode"
@@ -183,4 +190,6 @@
                           :variables {my-test-var {:default 55}})
   (is (= :top.kzre.krro.core.mode-test/my-test-minor my-test-minor))
   (is (mode/get-mode-spec my-test-minor))
-  (is (fn? my-test-minor-toggle)))
+  (is (fn? my-test-minor-toggle))
+  (my-test-minor-toggle)
+  (is (contains? (frame/minor-modes frame/*current-frame*) :top.kzre.krro.core.mode-test/my-test-minor)))

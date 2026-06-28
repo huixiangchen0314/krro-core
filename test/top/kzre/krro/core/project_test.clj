@@ -8,12 +8,11 @@
                 (f)))
 
 (deftest test-init-project
+  ;; 项目原子不再包含 :krro/modes
   (is (= {:krro/meta   {:version "0.1.0"
                         :name "Untitled"
                         :created-at (get-in @proj/project [:krro/meta :created-at])
                         :modified-at (get-in @proj/project [:krro/meta :modified-at])}
-          :krro/modes  {:major :krro.mode/fundamental
-                        :minors #{}}
           :krro/plugins {:active #{}}}
          @proj/project)))
 
@@ -23,14 +22,14 @@
 
 (deftest test-get-in-project
   (is (= "Untitled" (proj/get-in-project [:krro/meta :name])))
-  (is (= :krro.mode/fundamental (proj/get-in-project [:krro/modes :major])))
+  ;; :krro/modes 不再存在于项目原子
+  (is (nil? (proj/get-in-project [:krro/modes :major])))
   (is (nil? (proj/get-in-project [:nonexistent :path])))
-  (is (= 42 (proj/get-in-project [:nonexistent :path] 42)))) ; default value
+  (is (= 42 (proj/get-in-project [:nonexistent :path] 42))))
 
 (deftest test-update-project
   (proj/update-project! #(assoc % :custom-key "hello"))
   (is (= "hello" (proj/get-in-project [:custom-key])))
-  ;; Ensure the rest of the project is untouched
   (is (= "Untitled" (proj/get-in-project [:krro/meta :name]))))
 
 (deftest test-update-project-multiple

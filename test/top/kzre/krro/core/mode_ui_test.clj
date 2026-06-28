@@ -5,12 +5,13 @@
             [top.kzre.krro.core.keymap :as km]
             [top.kzre.krro.core.custom :as custom]
             [top.kzre.krro.core.hook :as hook]
-            [top.kzre.krro.core.ui.protocol :as ui]))
+            [top.kzre.krro.core.ui.protocol :as ui]
+            [top.kzre.krro.core.frame :as frame]))
 
-;; ── Mock 渲染器（适配 3 参数 render-element）─────────
+;; ── Mock 渲染器 ───────────────────────────────────────
 (defrecord MockRenderer [render-calls destroy-called]
   ui/IRenderer
-  (render-element [this element parent-node]
+  (render-element [this element]
     (swap! render-calls conj [:element element])
     (println "render-element:" element))
   (render-layout [this root-element]
@@ -40,7 +41,6 @@
 (use-fixtures :each
               (fn [f]
                 (proj/init-project!)
-                (reset! km/keymap-stack ())
                 (reset! km/prefix-stack ())
                 (reset! km/global-keymap (km/make-keymap {:u :krro.command/undo}))
                 (reset! custom/custom-registry {})
@@ -49,6 +49,9 @@
                 (reset! my-test-var 0)
                 (alter-meta! my-test-var dissoc :local-stack)
                 (ui/set-renderer! nil)
+                ;; 创建默认 Frame 并绑定
+                (let [f (frame/create-frame :id :test)]
+                  (alter-var-root #'frame/*current-frame* (constantly f)))
                 (f)))
 
 (deftest test-activate-mode-renders-layout
@@ -57,7 +60,7 @@
         spec (sample-major-spec :test.major layout)]
     (ui/set-renderer! renderer)
     (mode/register-mode! spec)
-    (mode/activate-major-mode! :test.major)
+    (mode/activate-major-mode! :test.major)      ;; 使用 *current-frame*
     (is (= [[:layout layout]] @(:render-calls renderer)))
     (is (not @(:destroy-called renderer)))))
 
@@ -90,5 +93,5 @@
   (let [layout [:v-box [:label "No renderer"]]
         spec (sample-major-spec :test.norender layout)]
     (mode/register-mode! spec)
-    ;; 未安装渲染器时不应抛出异常
+    ;; 未安装渲染器时不应抛出异常，且返回 mode-id
     (is (some? (mode/activate-major-mode! :test.norender)))))

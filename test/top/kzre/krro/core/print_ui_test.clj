@@ -7,7 +7,7 @@
 ;; ── 简单的控制台打印渲染器 ───────────────────────────
 (defrecord PrintRenderer [depth]
   ui/IRenderer
-  (render-element [this element parent-node]
+  (render-element [this element ]
     (let [indent (apply str (repeat (* 2 @depth) \space))]
       (if (string? element)
         (println indent "Text:" (pr-str element))
@@ -17,12 +17,12 @@
             (println indent "  Attrs:" attrs))
           (doseq [child children]
             (swap! depth inc)
-            (ui/render-element this child parent-node)
+            (ui/render-element this child )
             (swap! depth dec))))))
   (render-layout [this root-element]
     (println "=== Rendering Layout ===")
     (reset! depth 0)
-    (ui/render-element this root-element nil))
+    (ui/render-element this root-element ))
   (destroy-ui! [this]
     (println "=== UI Destroyed ===")))
 

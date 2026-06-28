@@ -1,6 +1,6 @@
 (ns top.kzre.krro.core.project
   "全局项目数据管理。项目数据是普通的不可变 EDN map，存储在 atom 中。
-   内核只维护元数据与活跃插件集合，领域数据由各插件自行管理。"
+   内核只维护元数据与活跃插件集合，模式状态由 Frame 管理，不再存储于项目原子。"
   (:import (java.time Instant)))
 
 (defonce project (atom {}))
@@ -16,7 +16,7 @@
   (swap! project f))
 
 (defn init-project!
-  "初始化一个新的最小项目。"
+  "初始化一个新的最小项目。不再包含 :krro/modes。"
   [& {:keys [name] :or {name "Untitled"}}]
   (let [now (str (Instant/now))]
     (reset! project
@@ -24,19 +24,13 @@
                            :name name
                            :created-at now
                            :modified-at now}
-             :krro/modes  {:major :krro.mode/fundamental
-                           :minors #{}}
              :krro/plugins {:active #{}}})))
 
-
-
-
 (defonce protected-keys
-         (atom #{:krro/meta :krro/modes :krro/plugins}))  ;; 内核默认保护
+         (atom #{:krro/meta :krro/plugins}))  ;; 内核默认保护
 
 (defn register-protected-key! [kw]
   (swap! protected-keys conj kw))
-
 
 (defn user-data
   "返回项目的用户数据部分，剔除所有受保护的键。"

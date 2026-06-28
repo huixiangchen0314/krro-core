@@ -3,9 +3,8 @@
    内核不管理任何 UI 状态，仅提供协议骨架。")
 
 (defprotocol IRenderer
-  (render-element [this element parent-node]
-    "将 EDN 元素渲染为平台特定组件，并挂载到 parent-node。
-     返回该平台节点对象。")
+  (render-element [this element]
+    "将 EDN 元素渲染为平台特定组件，返回该节点对象。")
   (render-layout [this root-element]
     "渲染整个布局树，替换当前主界面内容。
      root-element 为 Hiccup 风格向量的根元素。")
