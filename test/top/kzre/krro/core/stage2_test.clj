@@ -21,14 +21,12 @@
                   (reset! @v {}))
                 ;; 重新注册 fundamental 模式，parent 必须为 nil
                 (let [fund-spec (mode/make-major-mode :krro.mode/fundamental "Fundamental"
-                                                      :parent nil    ;; 关键：防止自循环
+                                                      :parent nil   ;; 关键：防止自循环
                                                       :layout [:v-box {:id :fundamental}]
                                                       :keymap (km/make-keymap {}))]
                   (mode/register-mode! fund-spec))
                 (ui/set-renderer! nil)
                 (f)))
-
-
 
 ;; ══════════════════════════════════════════════════════════
 ;; 2.1 变量类型验证
@@ -114,7 +112,7 @@
                                          :keymap child-km)]
     (mode/register-mode! parent-spec)
     (mode/register-mode! child-spec)
-    (mode/activate-major-mode! proj/project :test.child)
+    (mode/activate-major-mode! :test.child)
     (let [combined (first @km/keymap-stack)]
       ;; 子键图的 :keys 包含 :b
       (is (contains? (:keys combined) :b))
@@ -122,14 +120,14 @@
       (is (= :parent-cmd (km/lookup-key combined :a)))
       (is (= :child-cmd (km/lookup-key combined :b))))
     ;; 清理
-    (mode/deactivate-mode! proj/project child-spec)))
+    (mode/deactivate-mode! child-spec)))
 
 ;; ══════════════════════════════════════════════════════════
 ;; 2.6 fundamental 模式
 ;; ══════════════════════════════════════════════════════════
 (deftest test-fundamental-mode-exists
   (is (mode/get-mode-spec :krro.mode/fundamental))
-  (mode/fundamental-activate proj/project)
+  (mode/fundamental-activate!)
   (is (= :krro.mode/fundamental (get-in @proj/project [:krro/modes :major]))))
 
 ;; ══════════════════════════════════════════════════════════
@@ -143,7 +141,7 @@
     (mode/register-mode! spec)
     (let [called (atom false)]
       (hook/add-hook my-hook #(reset! called true))
-      (mode/activate-major-mode! proj/project :test.my-mode)
+      (mode/activate-major-mode! :test.my-mode)
       (is @called))
     ;; 清理
-    (mode/deactivate-mode! proj/project spec)))
+    (mode/deactivate-mode! spec)))

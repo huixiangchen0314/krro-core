@@ -70,6 +70,7 @@
                                                       :layout [:v-box {:id :fundamental}]
                                                       :keymap (km/make-keymap {}))]
                   (mode/register-mode! fund-spec))
+                (reset! plugin/plugin-registry [])
                 (ui/set-renderer! nil)
                 (f)))
 
@@ -83,7 +84,7 @@
     (cmd/register-command! :test.cmd/a test-cmd-a)
     (cmd/register-command! :test.cmd/b test-cmd-b)
 
-    (mode/activate-major-mode! proj/project :test.major)
+    (mode/activate-major-mode! :test.major)
     (is (= :test.major (get-in @proj/project [:krro/modes :major])))
     (is (= [[:layout layout]] @(:render-log renderer)))
 
@@ -95,26 +96,25 @@
 
     (let [minor (test-minor-spec :test.minor)]
       (mode/register-mode! minor)
-      (mode/toggle-minor-mode! proj/project :test.minor)
+      (mode/toggle-minor-mode! :test.minor)
       (is (contains? (get-in @proj/project [:krro/modes :minors]) :test.minor))
       (km/handle-key! :b)
       (is (= :cmd-b (:test/result @proj/project)))
-      (mode/toggle-minor-mode! proj/project :test.minor)
+      (mode/toggle-minor-mode! :test.minor)
       (is (not (contains? (get-in @proj/project [:krro/modes :minors]) :test.minor))))
 
-    (mode/fundamental-activate proj/project)
+    (mode/fundamental-activate!)
     (is (= :krro.mode/fundamental (get-in @proj/project [:krro/modes :major])))
     (is (= 0 @my-var))))
 
 (deftest test-plugin-register-and-command
-  (defmethod plugin/register-plugin! :test-plugin [p]
-    (cmd/register-command! :test.plugin/cmd (fn [proj] (assoc proj :plugin/result :ok)))
-    (swap! plugin/plugin-registry assoc (:id p) p)
-    (:id p))
+  ;; 定义 :test-plugin 类型的行为
+  (defmethod plugin/apply-plugin! :test-plugin [p]
+    (cmd/register-command! :test.plugin/cmd (fn [proj] (assoc proj :plugin/result :ok))))
 
-  (let [p {:id :test-plug :type :test-plugin}]
-    (is (= :test-plug (plugin/register-plugin! p)))
-    (is (contains? (plugin/registered-plugins) :test-plug))
+  (let [p {:name :test-plug :type :test-plugin}]
+    (plugin/register-plugin! p)
+    (is (some #(= (:name %) :test-plug) (plugin/registered-plugins)))
     (cmd/execute-command! proj/project :test.plugin/cmd)
     (is (= :ok (:plugin/result @proj/project)))))
 

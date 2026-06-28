@@ -84,13 +84,14 @@
         exit-called (atom false)]
     (hook/add-hook (get-in spec [:mode/hooks :on-enter]) #(reset! enter-called true))
     (hook/add-hook (get-in spec [:mode/hooks :on-exit])  #(reset! exit-called true))
-    (mode/activate-major-mode! proj/project :test.major)
+    ;; 现在不需要传递 project-atom
+    (mode/activate-major-mode! :test.major)
     (is (= :test.major (get-in @proj/project [:krro/modes :major])))
     (is (= 1 (count @km/keymap-stack)))
     (is (= 10 @my-test-var))
     (is @enter-called)
     (is (not @exit-called))
-    (mode/deactivate-mode! proj/project spec)
+    (mode/deactivate-mode! spec)
     (is (= 0 (count @km/keymap-stack)))
     (is (= 0 @my-test-var))
     (is @exit-called)))
@@ -102,9 +103,9 @@
     (mode/register-mode! old-spec)
     (mode/register-mode! new-spec)
     (hook/add-hook (get-in old-spec [:mode/hooks :on-exit]) #(reset! old-exit-called true))
-    (mode/activate-major-mode! proj/project :old.major)
+    (mode/activate-major-mode! :old.major)
     (is (= :old.major (get-in @proj/project [:krro/modes :major])))
-    (mode/activate-major-mode! proj/project :new.major)
+    (mode/activate-major-mode! :new.major)
     (is (= :new.major (get-in @proj/project [:krro/modes :major])))
     (is @old-exit-called)
     (is (= 1 (count @km/keymap-stack)))))
@@ -120,12 +121,12 @@
     (hook/add-hook (get-in minor [:mode/hooks :on-enter]) #(reset! enter-called true))
     (hook/add-hook (get-in minor [:mode/hooks :on-exit])  #(reset! exit-called true))
     (is (= #{} (get-in @proj/project [:krro/modes :minors])))
-    (mode/toggle-minor-mode! proj/project :test.minor)
+    (mode/toggle-minor-mode! :test.minor)
     (is (contains? (get-in @proj/project [:krro/modes :minors]) :test.minor))
     (is @enter-called)
     (is (= 20 @my-test-var))
     (is (= 1 (count @km/keymap-stack)))
-    (mode/toggle-minor-mode! proj/project :test.minor)
+    (mode/toggle-minor-mode! :test.minor)
     (is (not (contains? (get-in @proj/project [:krro/modes :minors]) :test.minor)))
     (is @exit-called)
     (is (= 0 @my-test-var))
@@ -144,10 +145,10 @@
                                :mode/variables {var-b {:default 200}}))]
     (mode/register-mode! parent-spec)
     (mode/register-mode! child-spec)
-    (mode/activate-major-mode! proj/project :child.mode)
+    (mode/activate-major-mode! :child.mode)
     (is (= 100 @var-a))
     (is (= 200 @var-b))
-    (mode/deactivate-mode! proj/project child-spec)
+    (mode/deactivate-mode! child-spec)
     (is (= 0 @var-a))
     (is (= 0 @var-b))))
 
@@ -159,7 +160,7 @@
         after-called (atom false)]
     (mode/register-mode! spec)
     (hook/add-hook (:mode/after-hook spec) #(reset! after-called true))
-    (mode/activate-major-mode! proj/project :test.after)
+    (mode/activate-major-mode! :test.after)
     (is @after-called)))
 
 ;; ═══════════════════════════════════════════════════════════
@@ -171,7 +172,10 @@
                           :variables {my-test-var {:default 999}})
   (is (= :top.kzre.krro.core.mode-test/my-test-mode my-test-mode))
   (is (mode/get-mode-spec my-test-mode))
-  (is (fn? my-test-mode-activate)))
+  ;; 激活函数现在无参数
+  (is (fn? my-test-mode-activate))
+  ;; 可调用 (my-test-mode-activate)
+  )
 
 (deftest test-define-minor-mode-macro
   (mode/define-minor-mode my-test-minor "Test minor mode"

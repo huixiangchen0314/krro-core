@@ -7,10 +7,10 @@
             [top.kzre.krro.core.hook :as hook]
             [top.kzre.krro.core.ui.protocol :as ui]))
 
-;; ── Mock 渲染器 ───────────────────────────────────────
+;; ── Mock 渲染器（适配 3 参数 render-element）─────────
 (defrecord MockRenderer [render-calls destroy-called]
   ui/IRenderer
-  (render-element [this element]
+  (render-element [this element parent-node]
     (swap! render-calls conj [:element element])
     (println "render-element:" element))
   (render-layout [this root-element]
@@ -48,7 +48,7 @@
                   (reset! @v {}))
                 (reset! my-test-var 0)
                 (alter-meta! my-test-var dissoc :local-stack)
-                (ui/set-renderer! nil)   ;; 清除渲染器
+                (ui/set-renderer! nil)
                 (f)))
 
 (deftest test-activate-mode-renders-layout
@@ -57,8 +57,7 @@
         spec (sample-major-spec :test.major layout)]
     (ui/set-renderer! renderer)
     (mode/register-mode! spec)
-    (mode/activate-major-mode! proj/project :test.major)
-    ;; 检查渲染调用
+    (mode/activate-major-mode! :test.major)
     (is (= [[:layout layout]] @(:render-calls renderer)))
     (is (not @(:destroy-called renderer)))))
 
@@ -67,8 +66,7 @@
         spec (sample-major-spec :test.no-layout nil)]
     (ui/set-renderer! renderer)
     (mode/register-mode! spec)
-    (mode/activate-major-mode! proj/project :test.no-layout)
-    ;; 未传入布局时不应调用渲染器
+    (mode/activate-major-mode! :test.no-layout)
     (is (empty? @(:render-calls renderer)))
     (is (not @(:destroy-called renderer)))))
 
@@ -81,10 +79,9 @@
     (ui/set-renderer! renderer)
     (mode/register-mode! spec-old)
     (mode/register-mode! spec-new)
-    (mode/activate-major-mode! proj/project :old.major)
+    (mode/activate-major-mode! :old.major)
     (is (= [[:layout layout-old]] @(:render-calls renderer)))
-    (mode/activate-major-mode! proj/project :new.major)
-    ;; 新模式的布局也应被渲染
+    (mode/activate-major-mode! :new.major)
     (is (= [[:layout layout-old] [:layout layout-new]]
            @(:render-calls renderer)))
     (is (not @(:destroy-called renderer)))))
@@ -94,4 +91,4 @@
         spec (sample-major-spec :test.norender layout)]
     (mode/register-mode! spec)
     ;; 未安装渲染器时不应抛出异常
-    (is (nil? (mode/activate-major-mode! proj/project :test.norender)))))
+    (is (some? (mode/activate-major-mode! :test.norender)))))
