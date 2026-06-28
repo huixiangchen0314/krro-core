@@ -135,29 +135,54 @@
           (hook/run-hooks after-hook))))))
 
 
+(defn make-major-mode-spec
+  "创建并注册主模式，返回模式信息 map（包含 :id, :spec, :activate-fn, :hook）。
+   参数 id 必须是完全限定的关键字（如 :my-ns/my-mode），docstring 为描述字符串。"
+  [id docstring & {:as opts}]
+  (let [hook (hook/make-hook)
+        spec (merge {:mode/id id, :mode/name docstring}
+                    (dissoc opts :after-hook)
+                    {:after-hook hook})
+        activate-fn (fn [project-atom] (activate-major-mode! project-atom id))]
+    (register-mode! spec)
+    {:id id
+     :spec spec
+     :activate-fn activate-fn
+     :hook hook}))
+
+(defn make-minor-mode-spec
+  "创建并注册副模式，返回模式信息 map（包含 :id, :spec, :toggle-fn, :hook）。"
+  [id docstring & {:as opts}]
+  (let [hook (hook/make-hook)
+        spec (merge {:mode/id id, :mode/name docstring, :mode/minor? true}
+                    (dissoc opts :after-hook)
+                    {:after-hook hook})
+        toggle-fn (fn [project-atom] (toggle-minor-mode! project-atom id))]
+    (register-mode! spec)
+    {:id id
+     :spec spec
+     :toggle-fn toggle-fn
+     :hook hook}))
+
 
 (defmacro define-major-mode
+  "定义主模式并自动创建相关的 Var。保留语法糖。"
   [name docstring & {:as opts}]
   (let [mode-id (keyword (str *ns*) (str name))
-        activate-fn (symbol (str name "-activate"))
+        activate-fn-sym (symbol (str name "-activate"))
         hook-sym (symbol (str name "-hook"))]
-    `(do
-       (defonce ~hook-sym (hook/make-hook))
-       (register-mode! (make-major-mode ~mode-id ~docstring
-                                        :after-hook ~hook-sym
-                                        ~@(flatten (seq (dissoc opts :after-hook)))))
-       (defn ~activate-fn [project-atom#] (activate-major-mode! project-atom# ~mode-id))
+    `(let [result# (make-major-mode-spec ~mode-id ~docstring ~@(flatten (seq opts)))]
+       (defonce ~hook-sym (:hook result#))
+       (def ~activate-fn-sym (:activate-fn result#))
        (def ~name ~mode-id))))
 
 (defmacro define-minor-mode
+  "定义副模式并自动创建相关的 Var。保留语法糖。"
   [name docstring & {:as opts}]
   (let [mode-id (keyword (str *ns*) (str name))
-        toggle-fn (symbol (str name "-toggle"))
+        toggle-fn-sym (symbol (str name "-toggle"))
         hook-sym (symbol (str name "-hook"))]
-    `(do
-       (defonce ~hook-sym (hook/make-hook))
-       (register-mode! (make-minor-mode ~mode-id ~docstring
-                                        :after-hook ~hook-sym
-                                        ~@(flatten (seq (dissoc opts :after-hook)))))
-       (defn ~toggle-fn [project-atom#] (toggle-minor-mode! project-atom# ~mode-id))
+    `(let [result# (make-minor-mode-spec ~mode-id ~docstring ~@(flatten (seq opts)))]
+       (defonce ~hook-sym (:hook result#))
+       (def ~toggle-fn-sym (:toggle-fn result#))
        (def ~name ~mode-id))))

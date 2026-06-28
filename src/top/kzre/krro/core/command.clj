@@ -19,10 +19,12 @@
 (defn- collect-args [interactor spec]
   (mapv (fn [s]
           (cond
-            (= s :string)  (i/read-text interactor "Enter value: ")
-            (= s :number)  (i/read-number interactor "Enter number: ")
+            (= s :string) (i/read-text interactor "Enter value: ")
+            (= s :number) (i/read-number interactor "Enter number: ")
             (and (vector? s) (= (first s) :choice))
-            (i/read-choice interactor "Choose: " (second s))
+            (let [[_ opt] s
+                  options (if (fn? opt) (opt) opt)]
+              (i/read-choice interactor "Choose: " options))
             :else (throw (ex-info "Unsupported interactive spec" {:spec s}))))
         spec))
 
