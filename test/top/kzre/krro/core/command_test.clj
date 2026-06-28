@@ -1,10 +1,10 @@
 (ns top.kzre.krro.core.command-test
   (:require
-   [clojure.string :as str]
-   [clojure.test :refer :all]
-   [top.kzre.krro.core.command :as cmd :refer [defcmd]]
-   [top.kzre.krro.core.message :as msg]
-   [top.kzre.krro.core.project :as proj]))
+    [clojure.string :as str]
+    [clojure.test :refer :all]
+    [top.kzre.krro.core.command :as cmd :refer [defcmd]]
+    [top.kzre.krro.core.message :as msg]
+    [top.kzre.krro.core.project :as proj]))
 
 (use-fixtures :each
               (fn [f]
@@ -38,7 +38,7 @@
                   (reset! called true)
                   (assoc proj :modified true))]
     (cmd/register-command! :test.cmd/exec handler)
-    (cmd/execute-command! proj/project :test.cmd/exec)
+    (cmd/execute-command! :test.cmd/exec)
     (is @called)
     (is (:modified @proj/project))))
 
@@ -48,13 +48,13 @@
                   (reset! captured [x y])
                   (assoc proj :sum (+ x y)))]
     (cmd/register-command! :test.cmd/with-args handler)
-    (cmd/execute-command! proj/project :test.cmd/with-args 3 4)
+    (cmd/execute-command! :test.cmd/with-args 3 4)
     (is (= [3 4] @captured))
     (is (= 7 (:sum @proj/project)))))
 
 (deftest test-execute-unknown-command-errors
   (reset! msg/messages [])
-  (cmd/execute-command! proj/project :test.cmd/ghost)
+  (cmd/execute-command! :test.cmd/ghost)
   (is (some #(and (= (:type %) :error)
                   (str/includes? (:content %) "Unknown command"))
             @msg/messages)))
@@ -69,5 +69,5 @@
     (is (= "Add a and b into project." (:description cmd-info)))))
 
 (deftest test-defcmd-execution
-  (cmd/execute-command! proj/project :top.kzre.krro.core.command-test/adder 10 20)
+  (cmd/execute-command! :top.kzre.krro.core.command-test/adder 10 20)
   (is (= 30 (:result @proj/project))))

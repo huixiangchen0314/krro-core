@@ -5,7 +5,6 @@
   (:require
     [top.kzre.krro.core.command :as cmd]
     [top.kzre.krro.core.hook :as hook]
-    [top.kzre.krro.core.project :as proj]
     [top.kzre.krro.core.message :as msg]))
 
 (defonce echo-hook (hook/make-hook))
@@ -74,7 +73,7 @@
       (do
         (reset! prefix-stack [])
         (try
-          (cmd/execute-command! proj/project binding)
+          (cmd/execute-command! binding)
           (catch Exception e
             (msg/error (str "Command execution failed for " binding ": " (.getMessage e))))))
 
