@@ -11,7 +11,7 @@
 (defonce captured-calls (atom []))
 
 ;; ── 顶层宏定义，使用已有的 captured-calls ─────────────
-(plugin/define-plugin :test.macro [resource-type loader]
+(plugin/defplugin :test.macro [resource-type loader]
                       (swap! captured-calls conj [resource-type loader]))
 
 ;; ── 测试 ────────────────────────────────────────────

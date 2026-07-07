@@ -1,34 +1,136 @@
 (ns top.kzre.krro.core.resource
-  "资源虚拟代理机制。内核提供加载器注册与分派，具体加载/缓存由插件管理。
-   错误信息通过 message 系统输出，加载失败时返回 nil。"
-  (:require [top.kzre.krro.core.message :as msg]))
+  "统一的编解码系统。
+   - 基于 :krro/type 注册编码器/解码器（函数对）。
+   - 编码 (encode) 自顶向下将对象转换为代理 map，支持显式指定目标类型。
+   - 解码 (decode) 自底向上惰性：代理 map 被替换为 delay，
+     其内部子值已被预先递归处理；force delay 时完成对象构造。
+   - realize 可递归强制所有 delay，用于全量具体化。
+   项目原子中始终存储纯数据代理 map，读取时返回惰性解码树。"
+  (:require [top.kzre.krro.core.message :as msg])
+  (:import (clojure.lang IDeref)))
 
-(defprotocol IResourceLoader
-  (load-resource [this proxy]
-    "根据代理 map 加载实际资源。返回类型由实现决定。"))
+;; ── 编解码注册表 ──────────────────────────────────
+(defonce codec-registry (atom {}))
 
-(defonce ^:private loaders (atom {}))
+(defn register-codec!
+  "注册一个编解码器对。type-kw 为 :krro/type 的值。
+   encoder: (fn [obj] -> proxy-map)
+   decoder: (fn [proxy-map] -> obj 或 delay)"
+  [type-kw encoder decoder]
+  (swap! codec-registry assoc type-kw {:encoder encoder :decoder decoder}))
 
-(defn register-resource-loader!
-  "注册一个资源加载器，:type 关键字用于匹配代理中的 :krro.resource/type。"
-  [type loader]
-  (swap! loaders assoc type loader))
+;; ── 内部查找编码器 ────────────────────────────────
+(defn- lookup-encoder
+  "为给定对象自动查找第一个可成功编码的注册编码器。
+   返回编码后的代理 map，若找不到则返回 nil。"
+  [obj]
+  (some (fn [[type-kw {:keys [encoder]}]]
+          (try
+            (let [encoded (encoder obj)]
+              (when (and (map? encoded) (= (:krro/type encoded) type-kw))
+                encoded))
+            (catch Exception _ nil)))
+        @codec-registry))
 
-(defn deref-resource
-  "解析资源代理。根据代理的 :krro.resource/type 查找对应加载器并加载。
-   若找不到匹配的加载器或加载失败，输出错误消息并返回 nil。"
-  [proxy]
-  (if-let [loader (get @loaders (:krro.resource/type proxy))]
+;; ── 编码（自顶向下，支持显式类型） ─────────────────
+(defn- encode-with-type
+  "使用指定的 type-kw 调用对应编码器。"
+  [obj type-kw]
+  (if-let [{:keys [encoder]} (get @codec-registry type-kw)]
     (try
-      (load-resource loader proxy)
+      (let [encoded (encoder obj)]
+        (if (and (map? encoded) (= (:krro/type encoded) type-kw))
+          encoded
+          (do (msg/error (str "Encoder for " type-kw " did not return a valid proxy map"))
+              obj)))
       (catch Exception e
-        (msg/error (str "Failed to load resource " (pr-str proxy) ": " (.getMessage e)))
-        nil))
+        (msg/error (str "Encoding failed for type " type-kw ": " (.getMessage e)))
+        obj))
     (do
-      (msg/error (str "No resource loader for type " (:krro.resource/type proxy) " when loading " (pr-str proxy)))
-      nil)))
+      (msg/error (str "No encoder registered for type " type-kw))
+      obj)))
 
-(defn make-proxy
-  "创建一个资源代理 map。至少需要 :type，其他键值对将合并到代理中。"
-  [type & {:as attrs}]
-  (assoc attrs :krro.resource/type type))
+(defn encode
+  "自顶向下递归编码。
+   单参数：自动查找编码器。
+   双参数：(encode data type-kw) 使用指定的 :krro/type 进行编码，
+           适用于同一对象类型有多个编码场景。
+   已包含 :krro/type 的 map 视为已编码，不再处理。"
+  ([data]
+   (encode data nil))
+  ([data type-kw]
+   (cond
+     (map? data)    (if (:krro/type data)
+                      data
+                      (into {} (map (fn [[k v]] [k (encode v)]) data)))
+     (vector? data) (mapv #(encode % type-kw) data)
+     (seq? data)    (map #(encode % type-kw) data)
+     (set? data)    (into #{} (map #(encode % type-kw) data))
+     :else          (if type-kw
+                      (encode-with-type data type-kw)
+                      (if-let [encoded (lookup-encoder data)]
+                        encoded
+                        data)))))
+
+;; ── 解码（自底向上惰性） ──────────────────────────
+(defn- decode*
+  "对已处理子节点的代理 map 执行实际解码。"
+  [m]
+  (if-let [type-kw (:krro/type m)]
+    (if-let [{:keys [decoder]} (get @codec-registry type-kw)]
+      (try (decoder m)
+           (catch Exception e
+             (msg/error (str "Decode failed for type " type-kw ": " (.getMessage e)))
+             m))
+      m)
+    m))
+
+(defn- lazy-decode
+  "自底向上惰性解码：递归处理所有子节点，若当前节点是代理则返回 delay。"
+  [m]
+  (cond
+    (map? m)
+    (let [processed (into {} (map (fn [[k v]] [k (lazy-decode v)]) m))]
+      (if (:krro/type m)
+        (delay (decode* processed))   ;; 子节点已惰性化，force 时解码器获得 processed map
+        processed))
+
+    (vector? m) (mapv lazy-decode m)
+    (seq? m)    (map lazy-decode m)
+    (set? m)    (into #{} (map lazy-decode m))
+    :else       m))
+
+(defn decode
+  "对数据创建自底向上惰性解码包装。返回的结构中，代理 map 被替换为 delay，
+   其内部子结构已预先递归处理；force delay 时执行实际解码。"
+  [data]
+  (lazy-decode data))
+
+;; ── 强制求值 ──────────────────────────────────────
+(defn realize
+  "递归强制所有 delay，返回完全具体化的数据。"
+  [x]
+  (cond
+    (instance? IDeref x) (realize @x)
+    (map? x) (into {} (map (fn [[k v]] [k (realize v)]) x))
+    (vector? x) (mapv realize x)
+    (seq? x) (map realize x)
+    (set? x) (into #{} (map realize x))
+    :else x))
+
+;; ── 项目集成辅助 ──────────────────────────────────
+(defn get-in-object
+  "从 project 原子中获取路径，返回惰性解码后的树。"
+  [project ks]
+  (some-> (get-in project ks) decode))
+
+(defn update-project-object!
+  "原子地更新项目：f 接收解码后的惰性树，返回新的对象树（可含未求值 delay），
+   函数内部会自动 realize 整个结果后再编码，确保原子中只存纯数据。"
+  [project-atom f]
+  (swap! project-atom
+         (fn [proj]
+           (-> proj decode          ;; 惰性解码整个项目
+               f                    ;; 用户修改
+               realize              ;; 强制所有 delay，得到具体对象树
+               encode))))           ;; 编码回代理 map

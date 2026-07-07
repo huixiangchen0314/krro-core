@@ -1,7 +1,7 @@
 (ns top.kzre.krro.core.plugins
-  "内置插件类型的扩展。例如资源加载器。"
-  (:require [top.kzre.krro.core.plugin :refer [define-plugin]]
-            [top.kzre.krro.core.resource :as resource]))
+  "内置插件类型的扩展。例如资源加载器、编解码器注册。"
+  (:require [top.kzre.krro.core.plugin :refer [defplugin]]
+            [top.kzre.krro.core.resource :as res]))
 
-(define-plugin :krro.plugin/resource-loader [resource-type loader]
-               (resource/register-resource-loader! resource-type loader))
+(defplugin :krro.plugin/resource-codec [resource encoder decoder]
+           (res/register-codec! resource encoder decoder))
