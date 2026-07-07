@@ -7,7 +7,9 @@
    - realize 可递归强制所有 delay，用于全量具体化。
    项目原子中始终存储纯数据代理 map，读取时返回惰性解码树。"
   (:require [top.kzre.krro.core.message :as msg])
-  (:import (clojure.lang IDeref)))
+  (:import (clojure.lang IDeref)
+           (java.net URI)
+           (java.util Date UUID)))
 
 ;; ── 编解码注册表 ──────────────────────────────────
 (defonce codec-registry (atom {}))
@@ -66,6 +68,20 @@
      (vector? data) (mapv #(encode % type-kw) data)
      (seq? data)    (map #(encode % type-kw) data)
      (set? data)    (into #{} (map #(encode % type-kw) data))
+
+     ;; 快速路径：EDN 原生标量类型，直接保留
+     (or (nil? data)
+         (boolean? data)
+         (number? data)
+         (string? data)
+         (keyword? data)
+         (symbol? data)
+         (char? data)
+         (instance? Date data)
+         (instance? UUID data)
+         (instance? URI data))
+     data
+
      :else          (if type-kw
                       (encode-with-type data type-kw)
                       (if-let [encoded (lookup-encoder data)]

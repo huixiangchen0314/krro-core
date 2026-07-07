@@ -78,9 +78,9 @@
            (msg/error (str "Command execution failed: " id " with args " args " - " (.getMessage e))))))
      (msg/error (str "Unknown command: " id)))))
 
-(defmacro defcmd
+(defmacro defcommand
   "定义命令并注册。语法：
-   (defcmd name [project & args] :description \"doc\" :interactive [:string] body...)
+   (defcommand name [project & args] :description \"doc\" :interactive [:string] body...)
    关键字选项 :description, :interactive 可放在参数向量之后任意位置。"
   [name & body]
   (let [[params & opt+body] body

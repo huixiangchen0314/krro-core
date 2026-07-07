@@ -3,12 +3,16 @@
   (:require [top.kzre.krro.core.project :as proj]
             [top.kzre.krro.core.frame :as frame]
             [top.kzre.krro.core.command]
+            [top.kzre.krro.core.commands]
             [top.kzre.krro.core.keymap]
             [top.kzre.krro.core.mode :as mode]
             [top.kzre.krro.core.custom]
             [top.kzre.krro.core.hook]
             [top.kzre.krro.core.message]
             [top.kzre.krro.core.plugin]
+            [top.kzre.krro.core.plugins]
+            [top.kzre.krro.core.resource]
+            [top.kzre.krro.core.resources]
             [top.kzre.krro.core.ui.protocol]))
 
 (defonce ^:private initialized? (atom false))

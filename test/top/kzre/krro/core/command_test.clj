@@ -2,7 +2,7 @@
   (:require
     [clojure.string :as str]
     [clojure.test :refer :all]
-    [top.kzre.krro.core.command :as cmd :refer [defcmd]]
+    [top.kzre.krro.core.command :as cmd :refer [defcommand]]
     [top.kzre.krro.core.message :as msg]
     [top.kzre.krro.core.project :as proj]))
 
@@ -59,7 +59,7 @@
                   (str/includes? (:content %) "Unknown command"))
             @msg/messages)))
 
-(defcmd adder [project a b]
+(defcommand adder [project a b]
         :description "Add a and b into project."
         (assoc project :result (+ a b)))
 

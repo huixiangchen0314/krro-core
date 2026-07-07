@@ -26,15 +26,5 @@
               :jar-file jar-file})
       (println "Jar created:" jar-file))
 
-(defn uberjar [_]
-      (clean nil)
-      (b/compile-clj {:basis basis
-                      :src-dirs ["src"]
-                      :class-dir class-dir})
-      (b/uber {:class-dir class-dir
-               :uber-file uber-file
-               :basis basis})
-      (println "Uberjar created:" uber-file))
-
 (defn test-all [_]
       (b/process {:command-args ["clojure" "-M:test"]}))
