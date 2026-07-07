@@ -1,8 +1,12 @@
 (ns top.kzre.krro.core.project
   "全局项目数据管理。项目数据是普通的不可变 EDN map，存储在 atom 中。
    内核只维护元数据与活跃插件集合，模式状态由 Frame 管理，不再存储于项目原子。"
-  (:require [top.kzre.krro.core.resource :as res])
-  (:import (java.time Instant)))
+  (:require
+   [top.kzre.krro.core.util.edn :as edn]
+   [clojure.java.io :as io]
+   [top.kzre.krro.core.resource :as res])
+  (:import
+   (java.time Instant)))
 
 (defonce project (atom {}))
 
@@ -40,6 +44,22 @@
                            :created-at now
                            :modified-at now}
              :krro/plugins {:active #{}}})))
+
+(defn load-project!
+  "从文件 f 加载项目，重置全局项目原子为纯数据代理 map。
+   不进行任何解码操作，加载后项目处于完全未激活状态。"
+  [f]
+  (reset! project (read-string (slurp (io/file f)))))
+
+(defn save-project!
+  "流式保存全局项目到文件 f。任何未注册编码器的对象将导致保存失败。"
+  [f]
+  (let [encoder-fn (fn [obj]
+                     (or (res/encode-object obj)
+                         (throw (ex-info (str "No codec registered for object of type " (class obj))
+                                         {:object obj}))))]
+    (with-open [w (io/writer f)]
+      (edn/write-edn @project w :object-encoder encoder-fn))))
 
 (defonce protected-keys
          (atom #{:krro/meta :krro/plugins}))  ;; 内核默认保护

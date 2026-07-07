@@ -22,7 +22,7 @@
   (swap! codec-registry assoc type-kw {:encoder encoder :decoder decoder}))
 
 ;; ── 内部查找编码器 ────────────────────────────────
-(defn- lookup-encoder
+(defn- try-encode-object
   "为给定对象自动查找第一个可成功编码的注册编码器。
    返回编码后的代理 map，若找不到则返回 nil。"
   [obj]
@@ -33,6 +33,12 @@
                 encoded))
             (catch Exception _ nil)))
         @codec-registry))
+
+(defn encode-object
+  "尝试为给定对象自动查找并应用编码器，返回代理 map。
+   若找不到合适的编码器则返回 nil。"
+  [obj]
+  (try-encode-object obj))
 
 ;; ── 编码（自顶向下，支持显式类型） ─────────────────
 (defn- encode-with-type
@@ -51,6 +57,8 @@
     (do
       (msg/error (str "No encoder registered for type " type-kw))
       obj)))
+
+
 
 (defn encode
   "自顶向下递归编码。
@@ -84,7 +92,7 @@
 
      :else          (if type-kw
                       (encode-with-type data type-kw)
-                      (if-let [encoded (lookup-encoder data)]
+                      (if-let [encoded (try-encode-object data)]
                         encoded
                         data)))))
 
