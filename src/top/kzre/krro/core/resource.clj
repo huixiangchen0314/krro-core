@@ -135,18 +135,51 @@
     :else x))
 
 ;; ── 项目集成辅助 ──────────────────────────────────
-(defn get-in-object
+(defn get-in-project-lazy
   "从 project 原子中获取路径，返回惰性解码后的树。"
   [project ks]
   (some-> (get-in project ks) decode))
 
-(defn update-project-object!
-  "原子地更新项目：f 接收解码后的惰性树，返回新的对象树（可含未求值 delay），
-   函数内部会自动 realize 整个结果后再编码，确保原子中只存纯数据。"
-  [project-atom f]
-  (swap! project-atom
-         (fn [proj]
-           (-> proj decode          ;; 惰性解码整个项目
-               f                    ;; 用户修改
-               realize              ;; 强制所有 delay，得到具体对象树
-               encode))))           ;; 编码回代理 map
+(defn activate-resource!
+  "激活项目原子中指定路径的代理数据为具体对象，并原地替换。
+   若路径下无数据或值为 nil，返回 nil 且不修改原子。
+   否则返回解码并 realize 后的具体对象。
+   project-atom: 项目原子
+   ks: get-in 路径向量"
+  [project-atom ks]
+  (let [encoded (get-in @project-atom ks)]
+    (when (some? encoded)                     ;; 只有存在非 nil 值才处理
+      (let [realized (-> encoded decode realize)]
+        (swap! project-atom assoc-in ks realized)
+        realized))))
+
+
+(defn deactivate-resource!
+  "将项目原子中指定路径的活跃对象编码为代理 map，并原地替换。
+   若路径下无数据或值为 nil，返回 nil 且不修改原子。
+   否则返回编码后的代理 map。
+   project-atom: 项目原子
+   ks: get-in 路径向量"
+  [project-atom ks]
+  (let [val (get-in @project-atom ks)]
+    (when (some? val)
+      (let [encoded (encode val)]
+        (swap! project-atom assoc-in ks encoded)
+        encoded))))
+
+
+(defn get-in-project!
+  "从项目原子中获取指定路径的值。若该值为代理 map（含有 :krro/type），
+   则自动调用 activate-resource! 将其解码为具体对象并写回原子，返回该对象。
+   若路径不存在或值为 nil，返回可选默认值 not-found（缺省为 nil）。
+   使用示例：
+     (get-in-project! proj/project [:krro.painting/canvases :default])
+     (get-in-project! proj/project [:some :path] :default-value)"
+  ([project-atom ks]
+   (get-in-project! project-atom ks nil))
+  ([project-atom ks not-found]
+   (if-let [val (get-in @project-atom ks)]
+     (if (and (map? val) (:krro/type val))
+       (activate-resource! project-atom ks)    ;; 代理 map → 激活并返回具体对象
+       val)                                    ;; 已是具体对象（或非代理 map），直接返回
+     not-found)))

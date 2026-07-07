@@ -19,7 +19,6 @@
     (msg/message "=== Krrō Inspect ===")
     (msg/message (str "Active major mode: " major))
     (msg/message (str "Active minor modes: " minors))
-    (msg/message (str "Keymap stack depth: " (count @km/keymap-stack)))
     (msg/message (str "Registered plugins: " (keys plugins)))
     (msg/message (str "Registered commands: " (count commands)))
     (msg/message (str "Custom variables: " (keys customs)))
