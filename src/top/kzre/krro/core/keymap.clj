@@ -6,8 +6,6 @@
     [top.kzre.krro.core.hook :as hook]
     [top.kzre.krro.core.message :as msg]))
 
-(defonce echo-hook (hook/make-hook))
-
 ;; ── 键图数据结构与查找 ──────────────────────────
 (defn make-keymap
   ([bindings] {:keys bindings :parent nil})
@@ -45,7 +43,7 @@
       (map? binding)
       (do
         (when-let [prefix-str (:prefix binding)]
-          (hook/run-hooks echo-hook prefix-str))
+          (hook/run-hook :krro.core/key-sequence-hook prefix-str))
         (swap! prefix-stack conj {:keymap binding}))
 
       (keyword? binding)

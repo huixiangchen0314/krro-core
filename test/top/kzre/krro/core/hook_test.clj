@@ -37,12 +37,12 @@
         calls (atom [])]
     (hook/add-hook h #(swap! calls conj [:first %]))
     (hook/add-hook h #(swap! calls conj [:second %]))
-    (hook/run-hooks h "arg")
+    (hook/run-hook h "arg")
     (is (= [[:first "arg"] [:second "arg"]] @calls))))
 
 (deftest test-run-empty-hook
   (let [h (hook/make-hook)]
-    (is (nil? (hook/run-hooks h)))) ; doseq 返回 nil
+    (is (nil? (hook/run-hook h)))) ; doseq 返回 nil
   )
 
 (deftest test-hook-order
@@ -52,5 +52,5 @@
         f2 #(swap! result conj 2)]
     (hook/add-hook h f1)
     (hook/add-hook h f2)
-    (hook/run-hooks h)
+    (hook/run-hook h)
     (is (= [1 2] @result)))) ; 保持添加顺序

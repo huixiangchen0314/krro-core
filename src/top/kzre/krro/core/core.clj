@@ -2,7 +2,7 @@
   "Krrō 核心入口。初始化项目，创建默认 Frame，绑定动态变量。"
   (:require [top.kzre.krro.core.project :as proj]
             [top.kzre.krro.core.frame :as frame]
-            [top.kzre.krro.core.command]
+            [top.kzre.krro.core.command :as cmd]
             [top.kzre.krro.core.commands]
             [top.kzre.krro.core.keymap]
             [top.kzre.krro.core.mode :as mode]
@@ -33,3 +33,44 @@
   `(do
      (init!)
      ~@body))
+
+
+
+;; ═══════════════════════════════════════════════════════
+;; 模式定义宏：自动注册模式与命令
+;; ═══════════════════════════════════════════════════════
+
+(defmacro define-major-mode
+  "定义主模式并注册激活/停用命令。
+   示例: (define-major-mode :krro.painting/painting \"Painting\" :layout ...)"
+  [mode-id docstring & {:as opts}]
+  (let [id-name         (name mode-id)
+        activate-cmd    (keyword (str "activate-" id-name "-mode"))
+        deactivate-cmd  (keyword (str "deactivate-" id-name "-mode"))]
+    `(do
+       (mode/register-mode! (mode/make-major-mode ~mode-id ~docstring ~@(flatten (seq opts))))
+       (cmd/register-command! ~activate-cmd
+                              (fn [project#]
+                                (mode/activate-major-mode! ~mode-id)
+                                @project#)
+                              :description (str "Activate " ~docstring " mode"))
+       (cmd/register-command! ~deactivate-cmd
+                              (fn [project#]
+                                (let [spec# (mode/get-mode-spec ~mode-id)]
+                                  (mode/deactivate-mode! spec#))
+                                @project#)
+                              :description (str "Deactivate " ~docstring " mode")))))
+
+(defmacro define-minor-mode
+  "定义副模式并注册切换命令。
+   示例: (define-minor-mode :krro.painting/auto-save \"Auto Save\" ...)"
+  [mode-id docstring & {:as opts}]
+  (let [id-name      (name mode-id)
+        toggle-cmd   (keyword (str "toggle-" id-name "-mode"))]
+    `(do
+       (mode/register-mode! (mode/make-minor-mode ~mode-id ~docstring ~@(flatten (seq opts))))
+       (cmd/register-command! ~toggle-cmd
+                              (fn [project#]
+                                (mode/toggle-minor-mode! ~mode-id)
+                                @project#)
+                              :description (str "Toggle " ~docstring " minor mode")))))

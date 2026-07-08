@@ -4,7 +4,6 @@
             [top.kzre.krro.core.command :as cmd]
             [top.kzre.krro.core.message :as msg]
             [top.kzre.krro.core.custom :as custom]
-            [top.kzre.krro.core.keymap :as km]
             [top.kzre.krro.core.mode :as mode]
             [top.kzre.krro.core.plugin :as plugin]))
 
@@ -53,12 +52,12 @@
 
 ;; ── 注册命令 ──────────────────────────────────────────
 
-(cmd/register-command! :krro.command/inspect inspect
+(cmd/register-command! :krro.core/inspect inspect
                        :description "Print current system state")
 
-(cmd/register-command! :krro.command/describe-mode describe-mode
+(cmd/register-command! :krro.core/describe-mode describe-mode
                        :description "Describe the current major mode")
 
-(cmd/register-command! :krro.command/apropos apropos
+(cmd/register-command! :krro.core/apropos apropos
                        :description "Search registered commands by name"
                        :interactive [:string])
