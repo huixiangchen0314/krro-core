@@ -40,7 +40,7 @@
 ;; 模式定义宏：自动注册模式与命令
 ;; ═══════════════════════════════════════════════════════
 
-(defmacro define-major-mode
+(defmacro defmajor
   "定义主模式并注册激活/停用命令。
    示例: (define-major-mode :krro.painting/painting \"Painting\" :layout ...)"
   [mode-id docstring & {:as opts}]
@@ -61,7 +61,7 @@
                                 @project#)
                               :description (str "Deactivate " ~docstring " mode")))))
 
-(defmacro define-minor-mode
+(defmacro defminor
   "定义副模式并注册切换命令。
    示例: (define-minor-mode :krro.painting/auto-save \"Auto Save\" ...)"
   [mode-id docstring & {:as opts}]

@@ -11,7 +11,7 @@
   (keyword (str (name id) "-changed-hook")))
 
 ;; ── 创建配置项 ────────────────────────────────────
-(defn create-custom
+(defn defcustom
   "在注册表中创建一个配置项，返回其 ID。
    id        : 全局唯一关键字，如 :krro.painting/default-brush
    default   : 默认值
