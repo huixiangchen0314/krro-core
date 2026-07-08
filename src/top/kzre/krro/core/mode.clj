@@ -96,7 +96,7 @@
        (when-let [km (resolve-keymap mode-id)]
          (frame/push-keymap f km))
        (when-let [layout (:mode/layout spec)]
-         (ui/render-layout! layout))
+         (ui/render-layout! layout f))
        (when-let [on-enter (get-in spec [:mode/hooks :on-enter])]
          (hook/run-hooks on-enter))
        (when-let [after-hook (:mode/after-hook spec)]

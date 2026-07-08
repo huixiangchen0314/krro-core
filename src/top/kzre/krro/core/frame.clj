@@ -13,9 +13,14 @@
   ;; ── 键图栈操作 ──────────────────────────
   (push-keymap [this km] "压入键图到 Frame 的键图栈")
   (pop-keymap [this] "弹出栈顶键图")
-  (keymaps [this] "返回当前有效的键图列表（包括全局）"))
+  (keymaps [this] "返回当前有效的键图列表（包括全局）")
+  (params-atom [this] "获取参数原子，方便监听.")
+  (params [this] "返回当前的参数快照map")
+  (param [this key] "获取 Frame 的自定义参数，可提供默认值")
+  (set-param! [this key value] "设置参数")
+  (remove-param! [this key] "移除参数"))
 
-(defrecord Frame [id major-mode-atom minor-modes-atom keymap-stack-atom]
+(defrecord Frame [id major-mode-atom minor-modes-atom keymap-stack-atom params-atom]
   IFrame
   (frame-id [_] id)
   (major-mode [_] @major-mode-atom)
@@ -25,7 +30,12 @@
   (remove-minor-mode! [_ mode-id] (swap! minor-modes-atom disj mode-id))
   (push-keymap [_ km] (swap! keymap-stack-atom conj km))
   (pop-keymap [_] (swap! keymap-stack-atom rest))
-  (keymaps [_] (concat @keymap-stack-atom [@km/global-keymap])))
+  (keymaps [_] (concat @keymap-stack-atom [@km/global-keymap]))
+  (params-atom [_] params-atom)
+  (params [_] @params-atom)
+  (param [_ key] (get @params-atom key))
+  (set-param! [_ key value] (swap! params-atom assoc key value))
+  (remove-param! [_ key] (swap! params-atom dissoc key)))
 
 (defn create-frame
   "创建一个新的 Frame，可指定 :id。"
@@ -33,10 +43,26 @@
   (map->Frame {:id id
                :major-mode-atom (atom :krro.mode/fundamental)
                :minor-modes-atom (atom #{})
-               :keymap-stack-atom (atom ())}))
+               :keymap-stack-atom (atom ())
+               :params-atom (atom {})}))
 
 (def ^:dynamic *current-frame* nil)
 
 (defmacro with-frame [f & body]
   `(binding [*current-frame* ~f]
      ~@body))
+
+
+(defn ensure-param!
+  "获取 frame 参数 key 的值。若不存在，则原子地调用 init-fn 生成默认值并设置。
+   init-fn 仅会在首次缺失时执行一次（通过 locking 保证）。
+   适用于启动时初始化 frame 局部状态。"
+  [frame key init-fn]
+  (let [pa (params-atom frame)]
+    (locking pa
+      (let [val @pa]
+        (if (contains? val key)
+          (get val key)
+          (let [new-val (init-fn)]
+            (swap! pa assoc key new-val)
+            new-val))))))
