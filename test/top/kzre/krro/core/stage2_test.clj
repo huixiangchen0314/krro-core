@@ -60,13 +60,13 @@
 (deftest test-custom-change-hook
   (let [calls (atom [])
         record (fn [sym old new] (swap! calls conj [sym old new]))]
-    (hook/add-hook custom/custom-change-hook record)
+    (hook/add-hook! custom/custom-change-hook record)
     (custom/defcustom observed-var 1 "Observed" :type :integer)
     (custom/set-custom! observed-var 2)
     (is (= [['observed-var 1 2]] @calls))
     (custom/set-custom! observed-var 3)
     (is (= [['observed-var 1 2] ['observed-var 2 3]] @calls))
-    (hook/remove-hook custom/custom-change-hook record)))
+    (hook/remove-hook! custom/custom-change-hook record)))
 
 ;; ══════════════════════════════════════════════════════════
 ;; 2.3 键序列前缀显示 + 2.4 describe-key
@@ -78,7 +78,7 @@
         prefixed (km/make-keymap {"f" :krro.command/forward "b" :krro.command/backward}
                                  nil)
         prefix-km (assoc prefixed :prefix "C-x")]
-    (hook/add-hook km/echo-hook echo-callback)
+    (hook/add-hook! km/echo-hook echo-callback)
     (frame/push-keymap f (km/make-keymap {"C-x" prefix-km}))
     (with-redefs [cmd/execute-command! (fn [& _] nil)]
       (km/handle-key! "C-x" (frame/keymaps f))
@@ -87,7 +87,7 @@
       (km/handle-key! "f" (frame/keymaps f))
       (is (= 0 (count @km/prefix-stack))))
     (frame/pop-keymap f)
-    (hook/remove-hook km/echo-hook echo-callback))
+    (hook/remove-hook! km/echo-hook echo-callback))
 
   (testing "describe-key returns bindings in priority order"
     (let [f (frame/create-frame :id :desc-test)
@@ -140,7 +140,7 @@
         f frame/*current-frame*]
     (mode/register-mode! spec)
     (let [called (atom false)]
-      (hook/add-hook my-hook #(reset! called true))
+      (hook/add-hook! my-hook #(reset! called true))
       (mode/activate-major-mode! :test.my-mode f)
       (is @called))
     (mode/deactivate-mode! spec f)))

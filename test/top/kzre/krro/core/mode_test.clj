@@ -86,8 +86,8 @@
         f frame/*current-frame*
         enter-called (atom false)
         exit-called (atom false)]
-    (hook/add-hook (get-in spec [:mode/hooks :on-enter]) #(reset! enter-called true))
-    (hook/add-hook (get-in spec [:mode/hooks :on-exit])  #(reset! exit-called true))
+    (hook/add-hook! (get-in spec [:mode/hooks :on-enter]) #(reset! enter-called true))
+    (hook/add-hook! (get-in spec [:mode/hooks :on-exit])  #(reset! exit-called true))
     (mode/activate-major-mode! :test.major f)
     (is (= :test.major (frame/major-mode f)))
     (is (= 2 (count (frame/keymaps f))))
@@ -107,7 +107,7 @@
         old-exit-called (atom false)]
     (mode/register-mode! old-spec)
     (mode/register-mode! new-spec)
-    (hook/add-hook (get-in old-spec [:mode/hooks :on-exit]) #(reset! old-exit-called true))
+    (hook/add-hook! (get-in old-spec [:mode/hooks :on-exit]) #(reset! old-exit-called true))
     (mode/activate-major-mode! :old.major f)
     (is (= :old.major (frame/major-mode f)))
     (mode/activate-major-mode! :new.major f)
@@ -124,8 +124,8 @@
         enter-called (atom false)
         exit-called (atom false)]
     (mode/register-mode! minor)
-    (hook/add-hook (get-in minor [:mode/hooks :on-enter]) #(reset! enter-called true))
-    (hook/add-hook (get-in minor [:mode/hooks :on-exit])  #(reset! exit-called true))
+    (hook/add-hook! (get-in minor [:mode/hooks :on-enter]) #(reset! enter-called true))
+    (hook/add-hook! (get-in minor [:mode/hooks :on-exit])  #(reset! exit-called true))
     (is (= #{} (frame/minor-modes f)))
     (mode/toggle-minor-mode! :test.minor f)
     (is (contains? (frame/minor-modes f) :test.minor))
@@ -167,7 +167,7 @@
         f frame/*current-frame*
         after-called (atom false)]
     (mode/register-mode! spec)
-    (hook/add-hook (:mode/after-hook spec) #(reset! after-called true))
+    (hook/add-hook! (:mode/after-hook spec) #(reset! after-called true))
     (mode/activate-major-mode! :test.after f)
     (is @after-called)))
 

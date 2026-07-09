@@ -10,17 +10,13 @@
   (set-major-mode! [this mode-id] "设置主模式")
   (add-minor-mode! [this mode-id] "激活副模式")
   (remove-minor-mode! [this mode-id] "停用副模式")
-  ;; ── 键图栈操作 ──────────────────────────
-  (push-keymap [this km] "压入键图到 Frame 的键图栈")
-  (pop-keymap [this] "弹出栈顶键图")
-  (keymaps [this] "返回当前有效的键图列表（包括全局）")
   (params-atom [this] "获取参数原子，方便监听.")
   (params [this] "返回当前的参数快照map")
   (param [this key] "获取 Frame 的自定义参数，可提供默认值")
   (set-param! [this key value] "设置参数")
   (remove-param! [this key] "移除参数"))
 
-(defrecord Frame [id major-mode-atom minor-modes-atom keymap-stack-atom params-atom]
+(defrecord Frame [id major-mode-atom minor-modes-atom params-atom]
   IFrame
   (frame-id [_] id)
   (major-mode [_] @major-mode-atom)
@@ -28,9 +24,6 @@
   (set-major-mode! [_ mode-id] (reset! major-mode-atom mode-id))
   (add-minor-mode! [_ mode-id] (swap! minor-modes-atom conj mode-id))
   (remove-minor-mode! [_ mode-id] (swap! minor-modes-atom disj mode-id))
-  (push-keymap [_ km] (swap! keymap-stack-atom conj km))
-  (pop-keymap [_] (swap! keymap-stack-atom rest))
-  (keymaps [_] (concat @keymap-stack-atom [@km/global-keymap]))
   (params-atom [_] params-atom)
   (params [_] @params-atom)
   (param [_ key] (get @params-atom key))
@@ -43,7 +36,6 @@
   (map->Frame {:id id
                :major-mode-atom (atom :krro.mode/fundamental)
                :minor-modes-atom (atom #{})
-               :keymap-stack-atom (atom ())
                :params-atom (atom {})}))
 
 (def ^:dynamic *current-frame* nil)

@@ -7,9 +7,18 @@
    - realize 可递归强制所有 delay，用于全量具体化。
    项目原子中始终存储纯数据代理 map，读取时返回惰性解码树。"
   (:require [top.kzre.krro.core.message :as msg])
-  (:import (clojure.lang IDeref)
+  (:import (clojure.lang IDeref IPersistentMap IRecord)
            (java.net URI)
            (java.util Date UUID)))
+
+;; ── 工具：区分普通 Map 和 DefRecord ────────────────
+(defn primitive-map?
+  "判断是否为普通不可变 map（非 defrecord）。"
+  [x]
+  (and (primitive-map? x)
+       (not (instance? IRecord x))
+       ;; 进一步检查是否为持久化 map（排除 Java 的 HashMap 等）
+       (instance? IPersistentMap x)))
 
 ;; ── 编解码注册表 ──────────────────────────────────
 (defonce codec-registry (atom {}))
@@ -29,7 +38,7 @@
   (some (fn [[type-kw {:keys [encoder]}]]
           (try
             (let [encoded (encoder obj)]
-              (when (and (map? encoded) (= (:krro/type encoded) type-kw))
+              (when (and (primitive-map? encoded) (= (:krro/type encoded) type-kw))
                 encoded))
             (catch Exception _ nil)))
         @codec-registry))
@@ -47,7 +56,7 @@
   (if-let [{:keys [encoder]} (get @codec-registry type-kw)]
     (try
       (let [encoded (encoder obj)]
-        (if (and (map? encoded) (= (:krro/type encoded) type-kw))
+        (if (and (primitive-map? encoded) (= (:krro/type encoded) type-kw))
           encoded
           (do (msg/error (str "Encoder for " type-kw " did not return a valid proxy map"))
               obj)))
@@ -70,7 +79,7 @@
    (encode data nil))
   ([data type-kw]
    (cond
-     (map? data)    (if (:krro/type data)
+     (primitive-map? data)    (if (:krro/type data)
                       data
                       (into {} (map (fn [[k v]] [k (encode v)]) data)))
      (vector? data) (mapv #(encode % type-kw) data)
@@ -113,7 +122,7 @@
   "自底向上惰性解码：递归处理所有子节点，若当前节点是代理则返回 delay。"
   [m]
   (cond
-    (map? m)
+    (primitive-map? m)
     (let [processed (into {} (map (fn [[k v]] [k (lazy-decode v)]) m))]
       (if (:krro/type m)
         (delay (decode* processed))   ;; 子节点已惰性化，force 时解码器获得 processed map
@@ -136,7 +145,7 @@
   [x]
   (cond
     (instance? IDeref x) (realize @x)
-    (map? x) (into {} (map (fn [[k v]] [k (realize v)]) x))
+    (primitive-map? x) (into {} (map (fn [[k v]] [k (realize v)]) x))
     (vector? x) (mapv realize x)
     (seq? x) (map realize x)
     (set? x) (into #{} (map realize x))
@@ -187,7 +196,7 @@
    (get-in-project! project-atom ks nil))
   ([project-atom ks not-found]
    (if-let [val (get-in @project-atom ks)]
-     (if (and (map? val) (:krro/type val))
+     (if (and (primitive-map? val) (:krro/type val))
        (activate-resource! project-atom ks)    ;; 代理 map → 激活并返回具体对象
        val)                                    ;; 已是具体对象（或非代理 map），直接返回
      not-found)))

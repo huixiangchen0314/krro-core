@@ -28,7 +28,7 @@
     ;; 添加 watcher，当值变更时触发 hook
     (add-watch value-atom :custom
                (fn [_ _ old new]
-                 (hook/run-hook (changed-hook-key id) old new)))
+                 (hook/run-hook! (changed-hook-key id) old new)))
     id))
 
 ;; ── 读写操作 ──────────────────────────────────────

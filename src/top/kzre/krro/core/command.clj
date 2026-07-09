@@ -1,7 +1,7 @@
 (ns top.kzre.krro.core.command
   "全局命令注册与执行。命令以关键字标识，存储为包含 handler 和可选交互规范的 map。
-   若调用 execute-command! 时不传参数且命令有 :interactive 规范，则自动通过交互器收集参数。
-   错误信息通过消息系统输出，不再抛出异常。"
+   命令 handler 签名为 (fn [project & args] -> any)，可原地修改项目原子，
+   execute-command! 返回 handler 的返回值。"
   (:require [top.kzre.krro.core.interactive :as i]
             [top.kzre.krro.core.message :as msg]
             [top.kzre.krro.core.project :as proj]))
@@ -21,8 +21,7 @@
 
 (defn- collect-args [interactor spec]
   (mapv (fn [s]
-          (let [;; 标准化为 [type prompt & opts]
-                [type prompt & opts] (if (keyword? s)
+          (let [[type prompt & opts] (if (keyword? s)
                                        [s "Enter value: "]
                                        s)
                 prompt (or prompt "Enter value: ")]
@@ -36,14 +35,14 @@
               (do
                 (msg/error (str "Unsupported interactive spec: " type))
                 nil))))
-  spec))
+        spec))
 
 (defn execute-command!
   "执行命令。
-   - 若提供了额外 args，则直接传递给 handler。
-   - 若未提供 args 且命令有 :interactive 规范，则通过交互器收集参数后执行。
-   - 若既无 args 又无交互规范，则无参执行。
-   命令签名为 (fn [project & args] -> new-project)。"
+   - 若提供额外 args，则直接传递给 handler。
+   - 若无 args 且命令有 :interactive 规范，则通过交互器收集参数后执行。
+   - 否则无参执行。
+   返回 handler 的返回值（不再限定为 project）。"
   ([id]
    (if-let [cmd (lookup-command id)]
      (let [handler   (:handler cmd)
@@ -58,24 +57,19 @@
            (msg/error (str "Command " id " requires interactive args, but no interactor installed")))
          ;; 零参数直接执行
          (try
-           (let [old-value @proj/project]
-             (try
-               (swap! proj/project handler)
-               (catch Exception e
-                 (reset! proj/project old-value)
-                 (msg/error (str "Command execution failed: " id " - " (.getMessage e))))))
+           (handler @proj/project)
            (catch Exception e
-             (msg/error (str "Command execution failed: " id " - " (.getMessage e)))))))
+             (msg/error (str "Command execution failed: " id " - " (.getMessage e)))
+             nil))))
      (msg/error (str "Unknown command: " id))))
   ([id & args]
    (if-let [cmd (lookup-command id)]
-     (let [handler (:handler cmd)
-           old-value @proj/project]
+     (let [handler (:handler cmd)]
        (try
-         (apply swap! proj/project handler args)
+         (apply handler @proj/project args)
          (catch Exception e
-           (reset! proj/project old-value)
-           (msg/error (str "Command execution failed: " id " with args " args " - " (.getMessage e))))))
+           (msg/error (str "Command execution failed: " id " with args " args " - " (.getMessage e)))
+           nil)))
      (msg/error (str "Unknown command: " id)))))
 
 (defmacro defcommand
