@@ -91,7 +91,7 @@
   ;; 使用新的 custom API：pop-local-value! 接受关键字 ID
   (doseq [id (keys all-vars)]
     (custom/pop-local-value! id))
-  (hook/run-hook! (exit-hook-key (:id spec))))
+  (hook/run-hook! (exit-hook-key (:id spec)) f))
 
 ;; ═══════════════════════════════════════════════════════
 ;; 模式激活与切换
@@ -103,7 +103,7 @@
     (doseq [id (keys (resolve-variables mode-id))]
       (custom/pop-local-value! id))
     (doseq [mid chain]
-      (hook/run-hook! (exit-hook-key mid)))))
+      (hook/run-hook! (exit-hook-key mid) f))))
 
 (defn- enter-major-mode! [mode-id f all-vars spec]
   (doseq [[id {:keys [default]}] all-vars]
@@ -111,18 +111,18 @@
   (when-let [layout (:layout spec)]
     (ui/render-layout! layout f))
   (doseq [mid (reverse (cons mode-id (parent-chain mode-id)))]
-    (hook/run-hook! (enter-hook-key mid))))
+    (hook/run-hook! (enter-hook-key mid) f)))
 
 ;; ── 副模式专用：进入与退出 ──────────────────────
 (defn- exit-minor-mode! [mode-id f]
   (doseq [id (keys (resolve-variables mode-id))]
     (custom/pop-local-value! id))
-  (hook/run-hook! (exit-hook-key mode-id)))
+  (hook/run-hook! (exit-hook-key mode-id) f))
 
 (defn- enter-minor-mode! [mode-id f all-vars spec]
   (doseq [[id {:keys [default]}] all-vars]
     (custom/push-local-value! id default))
-  (hook/run-hook! (enter-hook-key mode-id)))
+  (hook/run-hook! (enter-hook-key mode-id) f))
 
 
 

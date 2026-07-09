@@ -46,15 +46,15 @@
 
 
 (defn ensure-param!
-  "获取 frame 参数 key 的值。若不存在，则原子地调用 init-fn 生成默认值并设置。
-   init-fn 仅会在首次缺失时执行一次（通过 locking 保证）。
+  "获取 frame 参数 key 的值。若不存在，则原子地调用 init 生成默认值并设置。
+   init 仅会在首次缺失时执行一次（通过 locking 保证）。
    适用于启动时初始化 frame 局部状态。"
-  [frame key init-fn]
+  [frame key init]
   (let [pa (params-atom frame)]
     (locking pa
       (let [val @pa]
         (if (contains? val key)
           (get val key)
-          (let [new-val (init-fn)]
+          (let [new-val (if (fn? init) (init) init)]
             (swap! pa assoc key new-val)
             new-val))))))

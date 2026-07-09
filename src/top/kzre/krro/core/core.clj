@@ -15,10 +15,24 @@
    [top.kzre.krro.core.rdb :as rdb]
    [top.kzre.krro.core.resource]
    [top.kzre.krro.core.resources]
-   [top.kzre.krro.core.ui.protocol]
-   [top.kzre.krro.core.util.naming :as naming]))
+   [top.kzre.krro.core.util.naming :as naming]
+   [top.kzre.krro.core.ui.protocol :as ui]))
+
+(defn rerender!
+  "重新渲染当前 Frame 的布局。可从模式中重新获取 layout 并触发 UI 更新。"
+  ([] (rerender! frame/*current-frame*))
+  ([f]
+   (when-let [mode-id (frame/major-mode f)]
+     (when-let [spec (mode/get-mode-spec mode-id)]
+       (when-let [layout (:layout spec)]
+         (ui/render-layout! layout f))))))
+
+(def set-renderer! ui/set-renderer!)
+(def render-layout! ui/render-layout!)
 
 (defonce ^:private initialized? (atom false))
+
+
 
 (defn init!
   "初始化 Krrō 核心系统。创建默认 Frame 并设置为当前活动 Frame。
