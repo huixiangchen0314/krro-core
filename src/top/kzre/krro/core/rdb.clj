@@ -30,7 +30,7 @@
                                             :on-delete  :cascade 或 :restrict (默认 :restrict)
                                             :on-update  :cascade 或 :restrict (默认 :restrict)}
                     :column 和 :extractor 至少提供一个。"
-  [table-id & {:keys [primary-key unique not-null foreign-keys]
+  [table-id & {:keys [primary-key unique not-null foreign-keys defaults]
                :or   {primary-key :id}}]
   ;; 验证外键定义
   (doseq [fk foreign-keys]
@@ -40,7 +40,8 @@
          {:primary-key  primary-key
           :unique       (if (coll? unique) (set unique) (set (when unique [unique])))
           :not-null     (set not-null)
-          :foreign-keys (vec foreign-keys)}))
+          :foreign-keys (vec foreign-keys)
+          :defaults     (or defaults {})}))
 
 ;; ═══════════════════════════════════════════════════════════
 ;; 内部辅助
@@ -78,14 +79,18 @@
     (doseq [fk (:foreign-keys schema)]
       (let [ref-table-id (get-in fk [:references :table])
             ref-col      (get-in fk [:references :column])
-            fk-val       (fk-value row fk)]
+            fk-val       (fk-value row fk)
+            validator    (:validator fk)]
         (when fk-val
-          (let [ref-table   (get-table db ref-table-id)
-                ref-exists? (some #(= fk-val (get % ref-col)) (vals ref-table))]
-            (when-not ref-exists?
+          (let [ref-table (get-table db ref-table-id)
+                parent-row (some #(when (= fk-val (get % ref-col)) %) (vals ref-table))]
+            (when-not parent-row
               (throw (ex-info (str "Foreign key violation: " (or (:column fk) "extractor") "=" fk-val
                                    " not found in " ref-table-id "." ref-col)
-                              {:table table-id :row row :fk fk})))))))))
+                              {:table table-id :row row :fk fk})))
+            (when (and validator (not (validator row parent-row)))
+              (throw (ex-info (str "Custom validator failed for foreign key in " table-id)
+                              {:row row :fk fk :parent parent-row})))))))))
 
 ;; ── 级联删除辅助 ──────────────────────────────
 
@@ -98,25 +103,30 @@
         :when (= (get-in fk [:references :table]) table-id)]
     {:table other-table :schema schema :fk fk}))
 
-(defn- cascade-delete
-  "递归删除主键及其关联的级联子行。在 db 上进行纯变换。"
-  [db table-id pks visited]
+(defn- cascade-delete [db table-id pks visited]
   (reduce (fn [db pk]
             (if (contains? visited [table-id pk])
               db
               (let [visited (conj visited [table-id pk])
-                    ;; 处理子表级联
                     db (reduce (fn [db' {:keys [table schema fk]}]
-                                 (if (= (:on-delete fk :restrict) :cascade)
-                                   (let [child-table  (get-table db' table)
-                                         child-pk     (:primary-key schema :id)
-                                         child-rows   (filter #(= (fk-value % fk) pk) (vals child-table))
-                                         child-pks    (mapv #(get % child-pk) child-rows)]
-                                     (cascade-delete db' table child-pks visited))
-                                   db'))
+                                 (let [on-delete (:on-delete fk :restrict)
+                                       child-col   (:column fk)
+                                       child-extractor (:extractor fk)
+                                       validator  (:validator fk)
+                                       child-table (get-table db' table)
+                                       child-pk    (:primary-key schema :id)
+                                       child-rows  (filter (fn [child-row]
+                                                             (let [fk-val (or (when child-col (get child-row child-col))
+                                                                              (when child-extractor (child-extractor child-row)))]
+                                                               (and (= fk-val pk)
+                                                                    (or (nil? validator) (validator child-row pk)))))
+                                                           (vals child-table))
+                                       child-pks   (mapv #(get % child-pk) child-rows)]
+                                   (if (= on-delete :cascade)
+                                     (cascade-delete db' table child-pks visited)
+                                     db')))
                                db
                                (referencing-foreign-keys table-id))]
-                ;; 最后删除本行
                 (let [table (get-table db table-id)]
                   (set-table db table-id (dissoc table pk))))))
           db
@@ -179,15 +189,21 @@
 ;; ═══════════════════════════════════════════════════════════
 ;; CRUD 操作 (注入 db-atom)
 ;; ═══════════════════════════════════════════════════════════
-(defn insert!
-  [db-atom table-id & rows]
+
+(defn insert! [db-atom table-id & rows]
   (let [schema (get-schema table-id)
         pk     (:primary-key schema :id)
-        ;; 预先为主键缺失的行生成 UUID 关键词
+        defaults (:defaults schema)
+        ;; 为每行补全默认值（仅当 key 不存在或值为 nil 时）
+        apply-defaults (fn [row]
+                         (reduce-kv (fn [m k v] (if (nil? (get m k)) (assoc m k v) m))
+                                    row
+                                    defaults))
         rows' (mapv (fn [row]
-                      (if (get row pk)
-                        row
-                        (assoc row pk (keyword (str (java.util.UUID/randomUUID))))))
+                      (let [row (apply-defaults row)]
+                        (if (get row pk)
+                          row
+                          (assoc row pk (keyword (str (java.util.UUID/randomUUID)))))))
                     rows)]
     (swap! db-atom
            (fn [db]
@@ -195,18 +211,15 @@
                (reduce (fn [db' row]
                          (let [pk-val (get row pk)]
                            (when (contains? table pk-val)
-                             (throw (ex-info (str "Primary key " pk-val " already exists")
+                             (throw (ex-info (str "Primary key " pk-val " already exists in table " table-id)
                                              {:table table-id :pk pk-val})))
                            (validate-row schema row)
                            (unique-check table schema row)
                            (check-foreign-keys db' table-id row)
                            (set-table db' table-id (assoc table pk-val row))))
                        db rows'))))
-    ;; 直接返回已知的主键
     (let [keys (mapv #(get % pk) rows')]
-      (if (= (count keys) 1)
-        (first keys)
-        keys))))
+      (if (= (count keys) 1) (first keys) keys))))
 
 (defn select
   "查询表中符合条件的行。db-atom 为数据库原子，pred 为谓词函数或 nil（返回所有行）。"
@@ -259,14 +272,28 @@
     (get-in @db-atom path)))
 
 (defn update-by-id! [db-atom table-id pk-val f]
-  (if-let [path (path-select db-atom table-id pk-val)]
-    (swap! db-atom update-in path f)
-    pk-val))
+  (let [schema (get-schema table-id)]
+    (swap! db-atom
+           (fn [db]
+             (let [table (get-table db table-id)
+                   current (get table pk-val)]
+               (when-not current
+                 (throw (ex-info (str "Row with primary key " pk-val " not found in " table-id)
+                                 {:table table-id :pk pk-val})))
+               (let [new-row (f current)
+                     ;; 验证新行
+                     _ (validate-row schema new-row)
+                     _ (unique-check table schema new-row)   ;; 原表结构，但唯一性检查会排除自身
+                     _ (check-foreign-keys db table-id new-row)  ;; 使用更新前的 db 检查外键
+                     new-table (assoc table pk-val new-row)]
+                 (set-table db table-id new-table))))))
+  pk-val)
 
 (defn delete-by-id! [db-atom table-id pk-val]
-  (if-let [path (path-select db-atom table-id pk-val)]
-    (swap! db-atom update (first path) dissoc (second path))
-    pk-val))
+  (swap! db-atom
+         (fn [db]
+           (cascade-delete db table-id [pk-val] #{})))
+  pk-val)
 
 ;; ═══════════════════════════════════════════════════════════
 ;; 关联查询 (JOIN)

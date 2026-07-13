@@ -73,7 +73,7 @@
                 (reset! plugin/plugin-registry [])
                 (ui/set-renderer! nil)
                 ;; 创建默认 Frame 并绑定到 *current-frame*
-                (let [f (frame/create-frame :id :test)]
+                (let [f (frame/create-frame! :id :test)]
                   (alter-var-root #'frame/*current-frame* (constantly f)))
                 (f)))
 
@@ -122,7 +122,7 @@
     (is (= :ok (:plugin/result @proj/project)))))
 
 (deftest test-key-sequence
-  (let [f (frame/create-frame :id :key-seq-test)
+  (let [f (frame/create-frame! :id :key-seq-test)
         prefix-km (km/make-keymap {"f" :test.cmd/forward "b" :test.cmd/backward})
         root-km (km/make-keymap {"C-x" prefix-km})]
     (cmd/register-command! :test.cmd/forward (fn [p] (assoc p :test/action :forward)))

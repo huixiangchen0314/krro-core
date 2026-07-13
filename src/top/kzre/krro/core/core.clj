@@ -16,7 +16,8 @@
    [top.kzre.krro.core.resource]
    [top.kzre.krro.core.resources]
    [top.kzre.krro.core.util.naming :as naming]
-   [top.kzre.krro.core.ui.protocol :as ui]))
+   [top.kzre.krro.core.ui.protocol :as ui]
+   [top.kzre.krro.core.custom :as custom]))
 
 (defn rerender!
   "重新渲染当前 Frame 的布局。可从模式中重新获取 layout 并触发 UI 更新。"
@@ -32,6 +33,39 @@
 
 (defonce ^:private initialized? (atom false))
 
+;; custom
+(def defcustom custom/defcustom)
+(def get-custom custom/get-custom)
+(def set-custom-global! custom/set-custom-global!)
+(def set-custom-local! custom/set-custom-local!)
+(def kill-local-custom! custom/kill-local-custom!)
+(def global-value custom/global-value)
+(def custom-modified? custom/custom-modified?)
+(def reset-custom! custom/reset-custom!)
+(def all-customs custom/all-customs)
+(def custom-group custom/custom-group)
+
+
+;; frame
+(def current-frame frame/*current-frame*)
+(def create-frame! frame/create-frame!)
+(def destroy-frame! frame/destroy-frame!)
+(def all-frames frame/all-frames)
+(def frame-id frame/frame-id)
+(def major-mode frame/major-mode)
+(def minor-modes frame/minor-modes)
+
+;; mode
+(def activate-major-mode! mode/activate-major-mode!)
+(def activate-minor-mode! mode/activate-minor-mode!)
+(def deactivate-minor-mode! mode/deactivate-minor-mode!)
+(def toggle-minor-mode! mode/toggle-minor-mode!)
+(def deactivate-mode! mode/deactivate-mode!)
+(def fundamental-activate! mode/fundamental-activate!)
+(def make-major-mode mode/make-major-mode)
+(def make-minor-mode mode/make-minor-mode)
+(def register-mode! mode/register-mode!)
+(def get-mode-spec mode/get-mode-spec)
 
 
 (defn init!
@@ -40,7 +74,7 @@
   []
   (when (compare-and-set! initialized? false true)
     (proj/init-project!)
-    (let [f (frame/create-frame :id :default)]
+    (let [f (frame/create-frame! :id :default)]
       (alter-var-root #'frame/*current-frame* (constantly f))
       (mode/fundamental-activate! f)
       (println "Krrō core initialized."))))

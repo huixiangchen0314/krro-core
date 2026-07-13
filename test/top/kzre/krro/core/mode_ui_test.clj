@@ -50,7 +50,7 @@
                 (alter-meta! my-test-var dissoc :local-stack)
                 (ui/set-renderer! nil)
                 ;; 创建默认 Frame 并绑定
-                (let [f (frame/create-frame :id :test)]
+                (let [f (frame/create-frame! :id :test)]
                   (alter-var-root #'frame/*current-frame* (constantly f)))
                 (f)))
 

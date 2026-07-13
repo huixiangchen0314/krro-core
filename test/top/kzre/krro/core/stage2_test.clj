@@ -27,7 +27,7 @@
                   (mode/register-mode! fund-spec))
                 (ui/set-renderer! nil)
                 ;; 创建默认 Frame 并绑定到 *current-frame*
-                (let [f (frame/create-frame :id :stage2)]
+                (let [f (frame/create-frame! :id :stage2)]
                   (alter-var-root #'frame/*current-frame* (constantly f)))
                 (f)))
 
@@ -72,7 +72,7 @@
 ;; 2.3 键序列前缀显示 + 2.4 describe-key
 ;; ══════════════════════════════════════════════════════════
 (deftest test-prefix-echo-and-describe-key
-  (let [f (frame/create-frame :id :prefix-test)   ;; 为键测试创建独立 Frame
+  (let [f (frame/create-frame! :id :prefix-test)   ;; 为键测试创建独立 Frame
         echoed (atom [])
         echo-callback (fn [msg] (swap! echoed conj msg))
         prefixed (km/make-keymap {"f" :krro.command/forward "b" :krro.command/backward}
@@ -90,7 +90,7 @@
     (hook/remove-hook! km/echo-hook echo-callback))
 
   (testing "describe-key returns bindings in priority order"
-    (let [f (frame/create-frame :id :desc-test)
+    (let [f (frame/create-frame! :id :desc-test)
           km1 (km/make-keymap {:a :cmd1})
           km2 (km/make-keymap {:a :cmd2})]
       (frame/push-keymap f km1)

@@ -30,7 +30,7 @@
                   (reset! @vb 0)
                   (alter-meta! @vb dissoc :local-stack))
                 ;; 创建默认 Frame 并绑定到 *current-frame*
-                (let [f (frame/create-frame :id :test)]
+                (let [f (frame/create-frame! :id :test)]
                   (alter-var-root #'frame/*current-frame* (constantly f)))
                 (f)))
 

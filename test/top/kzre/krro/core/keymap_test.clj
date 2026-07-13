@@ -19,7 +19,7 @@
 
 ;; ── 辅助函数：创建测试 Frame 并返回 Frame 对象 ──────
 (defn- test-frame []
-  (frame/create-frame :id (keyword (str "test-" (gensym "f")))))
+  (frame/create-frame! :id (keyword (str "test-" (gensym "f")))))
 
 ;; ── 键图创建与查找基础测试 ───────────────────────────
 (deftest test-make-keymap

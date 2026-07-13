@@ -73,7 +73,10 @@
   ([]
    (reduce dissoc @project @protected-keys))
   ([project]
-   (reduce dissoc project @protected-keys)))
+   (if (map? project)
+     (reduce dissoc project @protected-keys)
+     (reduce dissoc @project @protected-keys))))
 
-
+(defn protected-data []
+  (select-keys @project @protected-keys))
 

@@ -15,7 +15,7 @@
 (defn primitive-map?
   "判断是否为普通不可变 map（非 defrecord）。"
   [x]
-  (and (primitive-map? x)
+  (and (map? x)
        (not (instance? IRecord x))
        ;; 进一步检查是否为持久化 map（排除 Java 的 HashMap 等）
        (instance? IPersistentMap x)))
@@ -25,22 +25,32 @@
 
 (defn register-codec!
   "注册一个编解码器对。type-kw 为 :krro/type 的值。
+   pred:   (fn [obj] -> boolean?) 类型判定函数
    encoder: (fn [obj] -> proxy-map)
    decoder: (fn [proxy-map] -> obj 或 delay)"
-  [type-kw encoder decoder]
-  (swap! codec-registry assoc type-kw {:encoder encoder :decoder decoder}))
+  [type-kw pred encoder decoder]
+  {:pre [(keyword? type-kw)
+         (ifn? pred)
+         (ifn? encoder)
+         (ifn? decoder)]}
+  (swap! codec-registry assoc type-kw {:encoder encoder
+                                       :decoder decoder
+                                       :pred pred}))
 
 ;; ── 内部查找编码器 ────────────────────────────────
 (defn- try-encode-object
   "为给定对象自动查找第一个可成功编码的注册编码器。
+   优先使用 pred 过滤，避免无效尝试。
    返回编码后的代理 map，若找不到则返回 nil。"
   [obj]
-  (some (fn [[type-kw {:keys [encoder]}]]
-          (try
-            (let [encoded (encoder obj)]
-              (when (and (primitive-map? encoded) (= (:krro/type encoded) type-kw))
-                encoded))
-            (catch Exception _ nil)))
+  (some (fn [[type-kw {:keys [pred encoder]}]]
+          ;; 如果提供了 pred，则必须先通过类型检查
+          (when  (pred obj)
+            (try
+              (let [encoded (encoder obj)]
+                (when (and (primitive-map? encoded) (= (:krro/type encoded) type-kw))
+                  encoded))
+              (catch Exception _ nil))))
         @codec-registry))
 
 (defn encode-object
@@ -79,9 +89,7 @@
    (encode data nil))
   ([data type-kw]
    (cond
-     (primitive-map? data)    (if (:krro/type data)
-                      data
-                      (into {} (map (fn [[k v]] [k (encode v)]) data)))
+     (primitive-map? data) (into {} (map (fn [[k v]] [k (encode v)]) data))
      (vector? data) (mapv #(encode % type-kw) data)
      (seq? data)    (map #(encode % type-kw) data)
      (set? data)    (into #{} (map #(encode % type-kw) data))
