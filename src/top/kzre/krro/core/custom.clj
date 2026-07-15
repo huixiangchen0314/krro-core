@@ -30,9 +30,13 @@
 ;; ── 类型检查 ──────────────────────────────
 (defmulti valid-type? (fn [type _] type))
 (defmethod valid-type? :integer [_ v] (integer? v))
+(defmethod valid-type? :int     [_ v] (integer? v))
 (defmethod valid-type? :boolean [_ v] (boolean? v))
 (defmethod valid-type? :string  [_ v] (string? v))
 (defmethod valid-type? :keyword [_ v] (keyword? v))
+(defmethod valid-type? :float   [_ v] (float? v))
+(defmethod valid-type? :double  [_ v] (float? v))            ;; Clojure 浮点即 double
+(defmethod valid-type? :number  [_ v] (number? v))
 (defmethod valid-type? :default [_ _] true)
 
 (defn- check-type! [entry new-value]
