@@ -78,13 +78,8 @@
       obj)))
 
 
-
 (defn encode
-  "自顶向下递归编码。
-   单参数：自动查找编码器。
-   双参数：(encode data type-kw) 使用指定的 :krro/type 进行编码，
-           适用于同一对象类型有多个编码场景。
-   已包含 :krro/type 的 map 视为已编码，不再处理。"
+  "自顶向下递归编码。未注册编码器的非标量对象将立即抛出异常。"
   ([data]
    (encode data nil))
   ([data type-kw]
@@ -94,7 +89,7 @@
      (seq? data)    (map #(encode % type-kw) data)
      (set? data)    (into #{} (map #(encode % type-kw) data))
 
-     ;; 快速路径：EDN 原生标量类型，直接保留
+     ;; EDN 原生标量：直接通过
      (or (nil? data)
          (boolean? data)
          (number? data)
@@ -107,11 +102,18 @@
          (instance? URI data))
      data
 
-     :else          (if type-kw
-                      (encode-with-type data type-kw)
-                      (if-let [encoded (try-encode-object data)]
-                        encoded
-                        data)))))
+     ;; 其他 Java 对象：尝试编码
+     :else
+     (let [encoded (if type-kw
+                     (encode-with-type data type-kw)
+                     (try-encode-object data))]
+       (if encoded
+         ;; 对编码器返回的代理 map 递归编码，保证完全性
+         (encode encoded)
+         ;; 找不到编码器 → 直接报错，防止污染数据
+         (throw (ex-info (str "No encoder found for object: " (pr-str data))
+                         {:object data
+                          :type   (type data)})))))))
 
 ;; ── 解码（自底向上惰性） ──────────────────────────
 (defn- decode*
