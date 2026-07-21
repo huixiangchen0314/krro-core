@@ -128,14 +128,32 @@
       m)
     m))
 
+
+(defn- shallow-realize
+  "对 x 进行浅层具体化：若 x 是 delay，则 force 它一次（但不对 force 后的结果递归 force）；
+   否则直接返回 x。"
+  [x]
+  (if (instance? IDeref x)
+    @x   ;; force 这一层 delay，但不处理 force 后可能出现的深层 delay
+    x))
+
+(defn- shallow-realize-map-vals
+  "对 map 的所有值进行 shallow-realize，保留键不变。"
+  [m]
+  (into {} (map (fn [[k v]] [k (shallow-realize v)]) m)))
+
 (defn- lazy-decode
-  "自底向上惰性解码：递归处理所有子节点，若当前节点是代理则返回 delay。"
+  "自底向上惰性解码：递归处理所有子节点，若当前节点是代理则返回 delay。
+   当父 delay 被 force 时，其直接子节点会被自动 force 一层（即 decoder 获得的是已解码的子对象），
+   但更深层的嵌套结构依然可惰性。"
   [m]
   (cond
     (primitive-map? m)
     (let [processed (into {} (map (fn [[k v]] [k (lazy-decode v)]) m))]
       (if (:krro/type m)
-        (delay (decode* processed))   ;; 子节点已惰性化，force 时解码器获得 processed map
+        (delay
+          ;; 父 delay 被 force 时，先对子节点进行浅层 force，然后调用 decoder
+          (decode* (shallow-realize-map-vals processed)))
         processed))
 
     (vector? m) (mapv lazy-decode m)
@@ -148,6 +166,7 @@
    其内部子结构已预先递归处理；force delay 时执行实际解码。"
   [data]
   (lazy-decode data))
+
 
 ;; ── 强制求值 ──────────────────────────────────────
 (defn realize
