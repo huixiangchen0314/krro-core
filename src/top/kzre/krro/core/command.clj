@@ -2,9 +2,11 @@
   "全局命令注册与执行。命令以关键字标识，存储为包含 handler 和可选交互规范的 map。
    命令 handler 签名为 (fn [project & args] -> any)，可原地修改项目原子，
    execute-command! 返回 handler 的返回值。"
-  (:require [top.kzre.krro.core.interactive :as i]
-            [top.kzre.krro.core.message :as msg]
-            [top.kzre.krro.core.project :as proj]))
+  (:require
+   [top.kzre.krro.core.interactive :as i]
+   [top.kzre.krro.core.message :as msg]
+   [top.kzre.krro.core.project :as proj]
+   [top.kzre.krro.core.variable :refer [*debug*]]))
 
 (defonce command-registry (atom {}))
 
@@ -60,8 +62,9 @@
            (handler @proj/project)
            (catch Exception e
              (msg/error (str "Command execution failed: " id " - " (.getMessage e)))
+             (when *debug* (throw e))
              nil))))
-     (msg/error (str "Unknown command: " id))))
+     (msg/warn (str "Unknown command: " id))))
   ([id & args]
    (if-let [cmd (lookup-command id)]
      (let [handler (:handler cmd)]
@@ -69,8 +72,9 @@
          (apply handler @proj/project args)
          (catch Exception e
            (msg/error (str "Command execution failed: " id " with args " args " - " (.getMessage e)))
+           (when *debug* (throw e))
            nil)))
-     (msg/error (str "Unknown command: " id)))))
+     (msg/warn (str "Unknown command: " id)))))
 
 (defmacro defcommand
   "定义命令并注册。语法：

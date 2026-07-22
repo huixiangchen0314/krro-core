@@ -4,9 +4,10 @@
    例如 {:u :undo, :C-x {:u :save}}。
    全局键图、前缀栈均使用此结构。"
   (:require
-    [top.kzre.krro.core.command :as cmd]
-    [top.kzre.krro.core.hook :as hook]
-    [top.kzre.krro.core.message :as msg]))
+   [top.kzre.krro.core.command :as cmd]
+   [top.kzre.krro.core.hook :as hook]
+   [top.kzre.krro.core.message :as msg]
+   [top.kzre.krro.core.variable :refer [*debug*]]))
 
 ;; ── 全局键图 ────────────────────────────────
 (defonce global-keymap (atom {}))
@@ -90,7 +91,8 @@
         (try
           (cmd/execute-command! binding)
           (catch Exception e
-            (msg/error (str "Command execution failed for " binding ": " (.getMessage e))))))
+            (msg/error (str "Command execution failed for " binding ": " (.getMessage e)))
+            (when *debug* (throw e)))))
 
       :else
       (do
