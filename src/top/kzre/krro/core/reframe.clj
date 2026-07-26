@@ -1,13 +1,14 @@
 (ns top.kzre.krro.core.reframe
   "多实例事件流框架，模仿 re-frame API 风格。
    提供：
-     - reg-event-db / reg-event-fx  注册事件（支持拦截器链）
+     - reg-event-db / reg-event-fx / reg-event-co  注册事件（支持拦截器链与异步协程）
      - reg-sub / subscribe          注册与拉取订阅
      - reg-fx                       注册副作用执行器
      - reg-store                    注册存储后端（getter / setter）
      - dispatch                     派发事件
      - on-store-change              监听数据变化（供 UI 自动刷新）
-   所有事件、订阅均按 app-id 隔离，不同实例完全独立。")
+   所有事件、订阅均按 app-id 隔离，不同实例完全独立。"
+  (:require [clojure.core.async :as async :refer [go <!]]))
 
 ;; ═══════════════════════════════════════════════
 ;; 内部状态
@@ -19,6 +20,11 @@
 
 (def ^:private event-handlers-fx
   "副作用事件注册表：结构同 event-handlers-db，handler 返回 {:db ... :fx ...}"
+  (atom {}))
+
+(def ^:private event-handlers-co
+  "异步协程事件注册表：结构类似，但 handler 返回 core.async channel，
+   该 channel 最终输出一个值：db 或 {:db ... :fx ...}。"
   (atom {}))
 
 (def ^:private fx-handlers
@@ -55,6 +61,9 @@
    (when (get-in @event-handlers-fx [app-id event-id])
      (throw (ex-info (str "Event already registered as fx: " event-id)
                      {:app-id app-id, :event-id event-id})))
+   (when (get-in @event-handlers-co [app-id event-id])
+     (throw (ex-info (str "Event already registered as co: " event-id)
+                     {:app-id app-id, :event-id event-id})))
    (swap! event-handlers-db assoc-in [app-id event-id]
           {:handler handler :interceptors interceptors})))
 
@@ -68,8 +77,32 @@
    (when (get-in @event-handlers-db [app-id event-id])
      (throw (ex-info (str "Event already registered as db: " event-id)
                      {:app-id app-id, :event-id event-id})))
+   (when (get-in @event-handlers-co [app-id event-id])
+     (throw (ex-info (str "Event already registered as co: " event-id)
+                     {:app-id app-id, :event-id event-id})))
    (swap! event-handlers-fx assoc-in [app-id event-id]
           {:handler handler :interceptors interceptors})))
+
+(defn reg-event-co
+  "注册异步协程事件处理器，处理器返回一个 core.async channel，
+   该 channel 最终产生一个值：db 或 {:db ... :fx ...}，然后由框架自动应用。
+   用法：
+     (reg-event-co app-id event-id handler-co)
+     (reg-event-co app-id event-id [interceptors] handler-co)
+   拦截器在异步流程中同样生效：:before 在 handler 调用前执行，
+   :after 在 channel 产生结果后、状态更新前执行。
+   handler-co: (fn [db & args] -> channel)"
+  ([app-id event-id handler-co]
+   (reg-event-co app-id event-id [] handler-co))
+  ([app-id event-id interceptors handler-co]
+   (when (get-in @event-handlers-db [app-id event-id])
+     (throw (ex-info (str "Event already registered as db: " event-id)
+                     {:app-id app-id, :event-id event-id})))
+   (when (get-in @event-handlers-fx [app-id event-id])
+     (throw (ex-info (str "Event already registered as fx: " event-id)
+                     {:app-id app-id, :event-id event-id})))
+   (swap! event-handlers-co assoc-in [app-id event-id]
+          {:handler handler-co :interceptors interceptors})))
 
 (defn reg-fx
   "注册副作用执行器。
@@ -127,8 +160,8 @@
 ;; 内部：拦截器链与副作用执行
 ;; ═══════════════════════════════════════════════
 
-(defn- apply-interceptors
-  "按顺序执行拦截器的 :before，调用 handler，再逆序执行 :after。
+(defn- apply-interceptors-sync
+  "同步执行拦截器链（用于纯事件和 fx 事件）。
    返回 {:db new-db, :fx [...]}。"
   [interceptors db event-v handler-fn]
   (let [db-after-before
@@ -138,7 +171,6 @@
                     db))
                 db
                 interceptors)
-        ;; 调用 handler，可能是纯事件 (返回 db) 或 fx 事件 (返回 map)
         result (apply handler-fn db-after-before (rest event-v))
         db-after-handler (if (map? result) (:db result) result)
         fx (when (map? result) (:fx result))
@@ -157,13 +189,40 @@
       (apply fx-fn app-id args)
       (throw (ex-info (str "Unknown fx: " fx-id) {:fx-id fx-id})))))
 
+;; ── 异步拦截器链处理 ──
+(defn- apply-interceptors-co
+  "处理协程事件的拦截器链，返回一个 channel，最终产生 {:db ... :fx ...}。
+   :before 同步执行，然后调用 handler-co 得到 channel，从 channel 取值后执行 :after。"
+  [interceptors db event-v handler-co-fn]
+  (let [db-after-before
+        (reduce (fn [db interceptor]
+                  (if-let [f (:before interceptor)]
+                    (f db event-v)
+                    db))
+                db
+                interceptors)
+        ch (apply handler-co-fn db-after-before (rest event-v))]
+    (go
+      (let [result (<! ch)
+            db-after-handler (if (map? result) (:db result) result)
+            fx (when (map? result) (:fx result))
+            db-final
+            (reduce (fn [db interceptor]
+                      (if-let [f (:after interceptor)]
+                        (f db event-v)
+                        db))
+                    db-after-handler
+                    (reverse interceptors))]
+        {:db db-final :fx fx}))))
+
 ;; ═══════════════════════════════════════════════
 ;; 派发
 ;; ═══════════════════════════════════════════════
 
 (defn dispatch
   "向指定 app-id 派发事件。事件向量格式：[event-id & args]。
-   根据注册类型自动选择纯事件处理器或 fx 处理器，并执行拦截器链。
+   根据注册类型自动选择纯事件处理器、fx 处理器或协程处理器，
+   并执行拦截器链（协程异步完成）。
    例: (dispatch :canvas-data [:add-layer {:id \"lyr-1\"}])"
   [app-id event-v]
   (let [store (get @stores app-id)]
@@ -172,20 +231,30 @@
     (let [event-id (first event-v)
           old-db   ((:getter store))
           entry-db (get-in @event-handlers-db [app-id event-id])
-          entry-fx (get-in @event-handlers-fx [app-id event-id])]
+          entry-fx (get-in @event-handlers-fx [app-id event-id])
+          entry-co (get-in @event-handlers-co [app-id event-id])]
       (cond
         entry-db
         (let [{:keys [handler interceptors]} entry-db
-              {:keys [db]} (apply-interceptors interceptors old-db event-v handler)]
+              {:keys [db]} (apply-interceptors-sync interceptors old-db event-v handler)]
           ((:setter store) db)
           (notify-listeners app-id))
 
         entry-fx
         (let [{:keys [handler interceptors]} entry-fx
-              {:keys [db fx]} (apply-interceptors interceptors old-db event-v handler)]
+              {:keys [db fx]} (apply-interceptors-sync interceptors old-db event-v handler)]
           ((:setter store) db)
           (when fx (execute-fx app-id fx))
           (notify-listeners app-id))
+
+        entry-co
+        (let [{:keys [handler interceptors]} entry-co
+              ch (apply-interceptors-co interceptors old-db event-v handler)]
+          (go
+            (let [{:keys [db fx]} (<! ch)]
+              ((:setter store) db)
+              (when fx (execute-fx app-id fx))
+              (notify-listeners app-id))))
 
         :else
         (throw (ex-info (str "No handler for event: " event-id)
