@@ -1,22 +1,55 @@
 (ns top.kzre.krro.core.reframe
   "多实例事件流框架，数据存取完全委托给外部注册的 getter/setter。
-   事件和订阅均通过 app-id 隔离，不同实例互不冲突。")
+   事件和订阅均通过 app-id 隔离，不同实例互不冲突。
+   支持纯事件处理器 (reg-event) 以及返回副作用描述的事件处理器 (reg-event-fx)。")
 
-;; ── 按 app-id 隔离的事件处理器注册表 ──────────────
+;; ── 纯事件处理器注册表 ──────────────────────────
 (def ^:private event-handlers (atom {}))
 
 (defn reg-event
-  "为指定 app-id 注册事件处理器。
-   app-id   : 应用实例标识
-   event-id : 事件标识（在同一 app-id 内唯一）
-   handler  : (fn [db & args] -> new-db)，纯函数，接收当前 db 和事件参数，返回新 db"
+  "注册纯事件处理器。handler 接收 db 和事件参数向量，返回新的 db。
+   同一 app-id 内，事件 ID 不能同时注册为纯事件和 fx 事件。"
   [app-id event-id handler]
+  (when (get-in @event-handlers-fx [app-id event-id])
+    (throw (ex-info (str "Event already registered as fx event: " event-id)
+                    {:app-id app-id, :event-id event-id})))
   (swap! event-handlers assoc-in [app-id event-id] handler))
 
 (defn unreg-event
-  "取消某个 app-id 下的某个事件。"
+  "取消注册纯事件。"
   [app-id event-id]
   (swap! event-handlers #(update-in % [app-id] dissoc event-id)))
+
+;; ── Fx 事件处理器注册表 ──────────────────────────
+(def ^:private event-handlers-fx (atom {}))
+
+(defn reg-event-fx
+  "注册 Fx 事件处理器。处理器接收 db 和事件参数，返回 {:db new-db, :fx [[fx-id & args] ...]}。
+   同一 app-id 内，事件 ID 不能同时注册为纯事件和 fx 事件。"
+  [app-id event-id handler-fx]
+  (when (get-in @event-handlers [app-id event-id])
+    (throw (ex-info (str "Event already registered as pure event: " event-id)
+                    {:app-id app-id, :event-id event-id})))
+  (swap! event-handlers-fx assoc-in [app-id event-id] handler-fx))
+
+(defn unreg-event-fx
+  "取消注册 Fx 事件。"
+  [app-id event-id]
+  (swap! event-handlers-fx #(update-in % [app-id] dissoc event-id)))
+
+;; ── Fx 副作用执行器注册表（全局共享） ────────────
+(def ^:private fx-handlers (atom {}))
+
+(defn reg-fx
+  "注册副作用执行器。handler 接收 app-id 和 args，执行具体副作用。
+   例如 (reg-fx :http-post (fn [app-id url body] ...))。"
+  [fx-id handler]
+  (swap! fx-handlers assoc fx-id handler))
+
+(defn unreg-fx
+  "取消注册副作用执行器。"
+  [fx-id]
+  (swap! fx-handlers dissoc fx-id))
 
 ;; ── 按 app-id 隔离的订阅查询注册表 ──────────────
 (def ^:private subscriptions (atom {}))
@@ -64,26 +97,48 @@
     (doseq [callback (vals listeners)]
       (callback))))
 
-;; ── 派发（事件带 app-id 隔离） ─────────────────
+;; ── 内部辅助：执行副作用向量 ────────────────────
+(defn- execute-fx [app-id fx-vec]
+  (doseq [[fx-id & args] fx-vec]
+    (if-let [fx-fn (get @fx-handlers fx-id)]
+      (apply fx-fn app-id args)
+      (throw (ex-info (str "Unknown fx: " fx-id) {:fx-id fx-id})))))
+
+;; ── 派发（纯事件与 Fx 事件统一入口） ──────────
 (defn dispatch
   "向指定应用实例派发事件。事件向量：[event-id & args]。
-   app-id 和 event-id 联合定位唯一的事件处理器。
-   从 app-id 对应的 getter 获取当前 db，调用处理器，用 setter 写回。"
+   首先尝试纯事件处理器，若不存在则尝试 Fx 事件处理器。
+   纯事件：直接用新 db 调用 setter。
+   Fx 事件：处理返回 {:db new-db, :fx [...]}，先设置 db，再执行副作用，
+   最后通知监听器。"
   [app-id event-v]
   (let [store (get @stores app-id)]
     (when (nil? store)
       (throw (ex-info (str "Store not registered: " app-id) {:app-id app-id})))
     (let [event-id (first event-v)
-          handler  (get-in @event-handlers [app-id event-id])]   ;; <-- 两级查找
-      (when (nil? handler)
+          args     (rest event-v)
+          old-db   ((:getter store))
+          handler-pure (get-in @event-handlers [app-id event-id])
+          handler-fx   (get-in @event-handlers-fx [app-id event-id])]
+      (cond
+        handler-pure
+        (let [new-db (apply handler-pure old-db args)]
+          ((:setter store) new-db)
+          (notify-listeners app-id))
+
+        handler-fx
+        (let [{:keys [db fx]} (apply handler-fx old-db args)]
+          (when-not db
+            (throw (ex-info "Fx handler must return a :db key." {:event event-v})))
+          ((:setter store) db)
+          (when fx
+            (execute-fx app-id fx))
+          (notify-listeners app-id))
+
+        :else
         (throw (ex-info (str "No handler for event [" event-id "] in app-id: " app-id)
-                        {:app-id app-id :event-id event-id})))
-      (let [args   (rest event-v)
-            old-db ((:getter store))
-            new-db (handler old-db args)]
-        ((:setter store) new-db)
-        (notify-listeners app-id)
-        nil))))
+                        {:app-id app-id, :event-id event-id}))))
+    nil))
 
 ;; ── 订阅（拉取，带 app-id 隔离） ──────────────
 (defn subscribe
@@ -95,7 +150,7 @@
   (let [store (get @stores app-id)]
     (when (nil? store)
       (throw (ex-info (str "Store not registered: " app-id) {:app-id app-id})))
-    (let [query-fn (get-in @subscriptions [app-id query-id])]   ;; <-- 两级查找
+    (let [query-fn (get-in @subscriptions [app-id query-id])]
       (when (nil? query-fn)
         (throw (ex-info (str "No subscription '" query-id "' for app-id: " app-id)
                         {:app-id app-id :query-id query-id})))
