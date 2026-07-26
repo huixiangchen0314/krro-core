@@ -1,9 +1,8 @@
 (ns top.kzre.krro.core.core
-  "Krrō 核心入口。初始化项目，创建默认 Frame，绑定动态变量。"
+  "Krrō 核心入口. krro 核心包括两个部分，应用的核心抽象，已经推荐使用应用模式."
   (:require
    [top.kzre.krro.core.command :as cmd]
    [top.kzre.krro.core.commands]
-   [top.kzre.krro.core.custom]
    [top.kzre.krro.core.frame :as frame]
    [top.kzre.krro.core.hook]
    [top.kzre.krro.core.keymap]
