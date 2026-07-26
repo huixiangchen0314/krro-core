@@ -11,42 +11,43 @@
 (defonce boolean-array-class (Class/forName "[Z"))
 (defonce char-array-class    (Class/forName "[C"))
 
+;; ── 注册编解码器，直接使用 Class 作为 pred ──────────
 (res/register-codec! :float-array
-                     #(instance? float-array-class % )      ; % 是对象，class 在后
-                     (fn [fa] {:krro/type :float-array :data (vec fa)})
+                     float-array-class   ;; 直接传 Class，内部转为 instance? + 快速索引
+                     (fn [fa _ctx] {:krro/type :float-array :data (vec fa)})
                      (fn [m] (float-array (:data m))))
 
 (res/register-codec! :int-array
-                     #(instance? int-array-class % )
-                     (fn [ia] {:krro/type :int-array :data (vec ia)})
+                     int-array-class
+                     (fn [ia _ctx] {:krro/type :int-array :data (vec ia)})
                      (fn [m] (int-array (:data m))))
 
 (res/register-codec! :double-array
-                     #(instance? double-array-class % )
-                     (fn [da] {:krro/type :double-array :data (vec da)})
+                     double-array-class
+                     (fn [da _ctx] {:krro/type :double-array :data (vec da)})
                      (fn [m] (double-array (:data m))))
 
 (res/register-codec! :long-array
-                     #(instance? long-array-class % )
-                     (fn [la] {:krro/type :long-array :data (vec la)})
+                     long-array-class
+                     (fn [la _ctx] {:krro/type :long-array :data (vec la)})
                      (fn [m] (long-array (:data m))))
 
 (res/register-codec! :short-array
-                     #(instance? short-array-class % )
-                     (fn [sa] {:krro/type :short-array :data (vec sa)})
+                     short-array-class
+                     (fn [sa _ctx] {:krro/type :short-array :data (vec sa)})
                      (fn [m] (short-array (:data m))))
 
 (res/register-codec! :byte-array
-                     #(instance? byte-array-class % )
-                     (fn [ba] {:krro/type :byte-array :data (vec ba)})
+                     byte-array-class
+                     (fn [ba _ctx] {:krro/type :byte-array :data (vec ba)})
                      (fn [m] (byte-array (:data m))))
 
 (res/register-codec! :boolean-array
-                     #(instance? boolean-array-class % )
-                     (fn [ba] {:krro/type :boolean-array :data (vec ba)})
+                     boolean-array-class
+                     (fn [ba _ctx] {:krro/type :boolean-array :data (vec ba)})
                      (fn [m] (boolean-array (:data m))))
 
 (res/register-codec! :char-array
-                     #(instance? char-array-class % )
-                     (fn [ca] {:krro/type :char-array :data (vec ca)})
+                     char-array-class
+                     (fn [ca _ctx] {:krro/type :char-array :data (vec ca)})
                      (fn [m] (char-array (:data m))))

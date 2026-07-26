@@ -52,15 +52,15 @@
   [f]
   (reset! project (read-string (slurp (io/file f)))))
 
-(defn save-project!
-  "流式保存全局项目到文件 f。任何未注册编码器的对象将导致保存失败。"
-  [f]
-  (let [encoder-fn (fn [obj]
-                     (or (res/encode-object obj)
-                         (throw (ex-info (str "No codec registered for object of type " (class obj))
-                                         {:object obj}))))]
-    (with-open [w (io/writer f)]
-      (edn/write-edn @project w :object-encoder encoder-fn))))
+;(defn save-project!
+;  "流式保存全局项目到文件 f。任何未注册编码器的对象将导致保存失败。"
+;  [f]
+;  (let [encoder-fn (fn [obj]
+;                     (or (res/encode-object obj)
+;                         (throw (ex-info (str "No codec registered for object of type " (class obj))
+;                                         {:object obj}))))]
+;    (with-open [w (io/writer f)]
+;      (edn/write-edn @project w :object-encoder encoder-fn))))
 
 (defonce protected-keys
          (atom #{:krro/meta :krro/plugins}))  ;; 内核默认保护
