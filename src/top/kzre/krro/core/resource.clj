@@ -117,16 +117,23 @@
 
 ;; ── 解码（自底向上惰性） ──────────────────────────
 (defn- decode*
-  "对已处理子节点的代理 map 执行实际解码。"
-  [m]
-  (if-let [type-kw (:krro/type m)]
-    (if-let [{:keys [decoder]} (get @codec-registry type-kw)]
-      (try (decoder m)
-           (catch Exception e
-             (msg/error (str "Decode failed for type " type-kw ": " (.getMessage e)))
-             m))
-      m)
-    m))
+  "对已处理子节点的代理 map 执行实际解码。支持递归解码，最多 5 层。"
+  ([m] (decode* m 5))
+  ([m depth]
+   (if (pos? depth)
+     (if-let [type-kw (:krro/type m)]
+       (if-let [{:keys [decoder]} (get @codec-registry type-kw)]
+         (let [result (try (decoder m)
+                           (catch Exception e
+                             (msg/error (str "Decode failed for type " type-kw ": " (.getMessage e)))
+                             m))]
+           ;; 如果结果仍然是一个代理 map，递归解码（深度减1）
+           (if (and (primitive-map? result) (:krro/type result))
+             (decode* result (dec depth))
+             result))
+         m)
+       m)
+     m)))
 
 
 (defn- shallow-realize
