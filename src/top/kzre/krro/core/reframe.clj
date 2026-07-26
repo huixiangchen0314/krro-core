@@ -1,5 +1,7 @@
 (ns top.kzre.krro.core.reframe
-  "多实例事件流框架，完全对齐 re-frame API 风格。"
+  "多实例事件流框架，完全对齐 re-frame API 风格。
+   事件处理器全局注册，通过命名空间关键字隔离；
+   副作用及订阅按 app-id 隔离。"
   (:require [clojure.core.async :as async :refer [go <! >! chan go-loop close!]])
   (:import (clojure.lang IDeref)))
 
@@ -9,11 +11,10 @@
 ;; 内部状态
 ;; ═══════════════════════════════════════
 
-(def ^:private event-handlers-db  (atom {}))
-(def ^:private event-handlers-fx  (atom {}))
-(def ^:private event-handlers-co  (atom {}))
-(def ^:private event-handlers-ctx (atom {}))
+;; 事件处理器全局存储，结构：{event-id {:handler fn :interceptors [...] :handler-type :db/:fx/:ctx/:co}}
+(def ^:private event-handlers (atom {}))
 
+;; 副作用按 app-id 隔离，结构：{app-id {fx-id handler}}
 (def ^:private fx-handlers        (atom {}))
 (def ^:private subscriptions      (atom {}))
 (def ^:private stores             (atom {}))
@@ -99,44 +100,45 @@
                (assoc-in context [:coeffects id] val)))})
 
 ;; ═══════════════════════════════════════
-;; 注册 API
+;; 注册 API（事件处理器全局注册，副作用按实例隔离）
 ;; ═══════════════════════════════════════
 
-(defn- register-event [atom-to-use app-id event-id interceptors handler handler-type]
-  (when (some #(get-in @% [app-id event-id])
-              [event-handlers-db event-handlers-fx event-handlers-co event-handlers-ctx])
-    (throw (ex-info (str "Event already registered: " event-id) {:app-id app-id :event-id event-id})))
-  (swap! atom-to-use assoc-in [app-id event-id] {:handler handler :interceptors interceptors}))
+(defn- register-event [event-id interceptors handler handler-type]
+  (when (get @event-handlers event-id)
+    (throw (ex-info (str "Event already registered: " event-id) {:event-id event-id})))
+  (swap! event-handlers assoc event-id {:handler handler :interceptors interceptors :handler-type handler-type}))
 
 (defn reg-event-db
   "注册纯 db 处理器： (fn [db event-v] -> new-db)"
-  ([app-id event-id handler] (reg-event-db app-id event-id [] handler))
-  ([app-id event-id interceptors handler]
-   (register-event event-handlers-db app-id event-id interceptors handler :db)))
+  ([event-id handler] (reg-event-db event-id [] handler))
+  ([event-id interceptors handler]
+   (register-event event-id interceptors handler :db)))
 
 (defn reg-event-fx
   "注册副作用处理器： (fn [cofx event-v] -> {:db new-db, :fx [[:fx-id args]]})"
-  ([app-id event-id handler] (reg-event-fx app-id event-id [] handler))
-  ([app-id event-id interceptors handler]
-   (register-event event-handlers-fx app-id event-id interceptors handler :fx)))
+  ([event-id handler] (reg-event-fx event-id [] handler))
+  ([event-id interceptors handler]
+   (register-event event-id interceptors handler :fx)))
 
 (defn reg-event-ctx
   "注册上下文处理器： (fn [context] -> context)"
-  ([app-id event-id handler] (reg-event-ctx app-id event-id [] handler))
-  ([app-id event-id interceptors handler]
-   (register-event event-handlers-ctx app-id event-id interceptors handler :ctx)))
+  ([event-id handler] (reg-event-ctx event-id [] handler))
+  ([event-id interceptors handler]
+   (register-event event-id interceptors handler :ctx)))
 
 (defn reg-event-co
   "注册协程处理器： (fn [cofx event-v] -> channel)，channel 产出 new-db 或 {:db .. :fx ..}"
-  ([app-id event-id handler] (reg-event-co app-id event-id [] handler))
-  ([app-id event-id interceptors handler]
-   (register-event event-handlers-co app-id event-id interceptors handler :co)))
+  ([event-id handler] (reg-event-co event-id [] handler))
+  ([event-id interceptors handler]
+   (register-event event-id interceptors handler :co)))
 
-(defn reg-fx [fx-id handler]
-  (swap! fx-handlers assoc fx-id handler))
+(defn reg-fx
+  "注册副作用处理器。必须指定 app-id，每个实例完全独立。"
+  [app-id fx-id handler]
+  (swap! fx-handlers assoc-in [app-id fx-id] handler))
 
 (defn reg-sub
-  "注册反应式订阅。"
+  "注册反应式订阅，按 app-id 隔离。"
   ([app-id query-id compute-fn]
    (reg-sub app-id query-id :<- [:db] compute-fn))
   ([app-id query-id _arrow inputs compute-fn]
@@ -235,41 +237,24 @@
   (let [store (get @stores app-id)
         _ (when-not store (throw (ex-info "Store gone" {})))
         event-id (first event-v)
-        entry-db  (get-in @event-handlers-db  [app-id event-id])
-        entry-fx  (get-in @event-handlers-fx  [app-id event-id])
-        entry-ctx (get-in @event-handlers-ctx [app-id event-id])
-        entry-co  (get-in @event-handlers-co  [app-id event-id])
+        ;; 从合并的全局处理器中查找
+        entry (get @event-handlers event-id)
+        _ (when-not entry
+            (throw (ex-info (str "No handler for event: " event-id) {})))
+        {:keys [handler interceptors handler-type]} entry
         context (-> (base-context app-id event-v)
                     (assoc-in [:coeffects :original-db]
                               (get-in (base-context app-id event-v) [:coeffects :db])))]
-    (cond
-      entry-db
-      (let [{:keys [handler interceptors]} entry-db
-            ctx (apply-interceptors interceptors context handler :db)]
+    (case handler-type
+      (:db :fx :ctx)
+      (let [ctx (apply-interceptors interceptors context handler handler-type)]
         ((:setter store) (get-in ctx [:effects :db]))
         (when-let [fx (get-in ctx [:effects :fx])] (execute-fx app-id fx))
         (invalidate-root-signals app-id)
         (notify-listeners app-id))
 
-      entry-fx
-      (let [{:keys [handler interceptors]} entry-fx
-            ctx (apply-interceptors interceptors context handler :fx)]
-        ((:setter store) (get-in ctx [:effects :db]))
-        (when-let [fx (get-in ctx [:effects :fx])] (execute-fx app-id fx))
-        (invalidate-root-signals app-id)
-        (notify-listeners app-id))
-
-      entry-ctx
-      (let [{:keys [handler interceptors]} entry-ctx
-            ctx (apply-interceptors interceptors context handler :ctx)]
-        ((:setter store) (get-in ctx [:effects :db]))
-        (when-let [fx (get-in ctx [:effects :fx])] (execute-fx app-id fx))
-        (invalidate-root-signals app-id)
-        (notify-listeners app-id))
-
-      entry-co
-      (let [{:keys [handler interceptors]} entry-co
-            ctx-before (reduce (fn [ctx interceptor]
+      :co
+      (let [ctx-before (reduce (fn [ctx interceptor]
                                  (if-let [f (:before interceptor)] (f ctx) ctx))
                                context interceptors)
             cofx   (get-in ctx-before [:coeffects])
@@ -289,9 +274,7 @@
             ((:setter store) (get-in ctx-final [:effects :db]))
             (when-let [fx (get-in ctx-final [:effects :fx])] (execute-fx app-id fx))
             (invalidate-root-signals app-id)
-            (notify-listeners app-id))))
-      :else
-      (throw (ex-info (str "No handler for event: " event-id) {})))))
+            (notify-listeners app-id)))))))
 
 (defn- invalidate-root-signals [app-id]
   (when-let [signals (get @root-signals app-id)]
@@ -299,9 +282,10 @@
 
 (defn- execute-fx [app-id fx-vec]
   (doseq [[fx-id & args] fx-vec]
-    (if-let [fx-fn (get @fx-handlers fx-id)]
+    (if-let [fx-fn (get-in @fx-handlers [app-id fx-id])]
       (apply fx-fn app-id args)
-      (throw (ex-info (str "Unknown fx: " fx-id) {})))))
+      (throw (ex-info (str "Unknown fx: " fx-id " for app-id: " app-id)
+                      {:app-id app-id :fx-id fx-id})))))
 
 ;; ═══════════════════════════════════════
 ;; 派发
