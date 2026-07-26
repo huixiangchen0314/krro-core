@@ -3,6 +3,7 @@
   (:require
    [top.kzre.krro.core.command :as cmd]
    [top.kzre.krro.core.commands]
+   [top.kzre.krro.core.reframe]
    [top.kzre.krro.core.frame :as frame]
    [top.kzre.krro.core.hook]
    [top.kzre.krro.core.keymap]
