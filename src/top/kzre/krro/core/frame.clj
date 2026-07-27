@@ -1,11 +1,8 @@
 (ns top.kzre.krro.core.frame
   "Frame 抽象：每个 Frame 代表一个独立的工作空间，持有模式、键图栈。
-   所有状态通过 IFrame 协议封装，不暴露内部原子。"
-  (:require [top.kzre.krro.core.keymap :as km]))
+   所有状态通过 IFrame 协议封装，不暴露内部原子。")
 
 (defonce frame-registry (atom {}))   ;; {frame-id Frame}
-
-
 
 (defprotocol IFrame
   (frame-id [this] "返回 Frame 的唯一标识")
@@ -22,9 +19,10 @@
   (local-customs-atom [this] "返回存储局部 custom 的原子")
   (local-customs [this] "返回局部 custom 的 map 快照")
   (set-local-custom! [this id value] "设置一个局部 custom 值")
-  (remove-local-custom! [this id] "移除一个局部 custom 值"))
+  (remove-local-custom! [this id] "移除一个局部 custom 值")
+  (window [this] "返回 frame 所在的窗口协议"))
 
-(defrecord Frame [id major-mode-atom minor-modes-atom params-atom local-customs-atom]
+(defrecord Frame [id major-mode-atom minor-modes-atom params-atom local-customs-atom window]
   IFrame
   (frame-id [_] id)
   (major-mode [_] @major-mode-atom)
@@ -40,7 +38,8 @@
   (local-customs-atom [_] local-customs-atom)
   (local-customs [_] @local-customs-atom)
   (set-local-custom! [_ vid value] (swap! local-customs-atom assoc vid value))
-  (remove-local-custom! [_ vid] (swap! local-customs-atom dissoc vid)))
+  (remove-local-custom! [_ vid] (swap! local-customs-atom dissoc vid))
+  (window [_] window))
 
 
 (def ^:dynamic *current-frame* nil)
@@ -75,13 +74,16 @@
 
 (defn create-frame!
   "创建一个新的 Frame，自动注册到全局表。
-   可指定 :id，默认自动生成。"
-  [& {:keys [id] :or {id (keyword (str "frame-" (gensym "f")))}}]
-  (let [f (map->Frame {:id id
-                       :major-mode-atom (atom :krro.mode/fundamental)
-                       :minor-modes-atom (atom #{})
-                       :params-atom (atom {})
-                       :local-customs-atom (atom {})})]
+   win 为 Frame 所在的 Window（可为 nil，表示无窗口）。
+   可选关键字参数 :id 指定 Frame 的唯一 ID，默认自动生成。"
+  [win & {:keys [id]
+          :or   {id (keyword (str "frame-" (gensym "f")))}}]
+  (let [f (map->Frame {:id                id
+                       :major-mode-atom   (atom :krro.mode/fundamental)
+                       :minor-modes-atom  (atom #{})
+                       :params-atom       (atom {})
+                       :local-customs-atom (atom {})
+                       :window            win})]
     (swap! frame-registry assoc id f)
     f))
 

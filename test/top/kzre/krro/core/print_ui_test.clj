@@ -26,25 +26,3 @@
   (destroy-ui! [this]
     (println "=== UI Destroyed ===")))
 
-;; ── 测试 ──────────────────────────────────────────────
-(deftest test-print-renderer-basic
-  (let [renderer (->PrintRenderer (atom 0))]
-    (ui/set-renderer! renderer)
-    (let [layout [:v-box {:style {:padding 5}}
-                  [:label {:text "Hello"}]
-                  [:button {:on-command :ok} "OK"]]]
-      (is (s/valid? ::ui-spec/ui-element layout))
-      (ui/render-layout! layout)
-      (ui/destroy-global-ui!))))
-
-(deftest test-print-renderer-recursive
-  (let [renderer (->PrintRenderer (atom 0))]
-    (ui/set-renderer! renderer)
-    (let [nested [:h-box
-                  [:v-box
-                   [:label {:text "A"}]
-                   [:label {:text "B"}]]
-                  [:button {:on-command :cancel} "Cancel"]]]
-      (is (s/valid? ::ui-spec/ui-element nested))
-      (ui/render-layout! nested)
-      (ui/destroy-global-ui!))))

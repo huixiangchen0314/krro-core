@@ -26,10 +26,10 @@
    (when-let [mode-id (frame/major-mode f)]
      (when-let [spec (mode/get-mode-spec mode-id)]
        (when-let [layout (:layout spec)]
-         (ui/render-layout! layout f))))))
+         (ui/render-frame! layout f))))))
 
 (def set-renderer! ui/set-renderer!)
-(def render-layout! ui/render-layout!)
+(def render-layout! ui/render-frame!)
 
 (defonce ^:private initialized? (atom false))
 

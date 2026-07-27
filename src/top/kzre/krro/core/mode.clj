@@ -108,7 +108,7 @@
   (doseq [[id value] all-vars]
     (custom/set-custom-local! id value f))
   (when-let [layout (:layout spec)]
-    (ui/render-layout! layout f))
+    (ui/render-frame! layout f))
   (doseq [mid (reverse (cons mode-id (parent-chain mode-id)))]
     (hook/run-hook! (enter-hook-key mid) f)))
 
