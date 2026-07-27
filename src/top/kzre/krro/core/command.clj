@@ -25,24 +25,6 @@
 (defn lookup-command [id]
   (get @command-registry id))
 
-(defn- collect-args [interactor spec]
-  (mapv (fn [s]
-          (let [[type prompt & opts] (if (keyword? s)
-                                       [s "Enter value: "]
-                                       s)
-                prompt (or prompt "Enter value: ")]
-            (case type
-              :string (i/read-text interactor prompt)
-              :number (i/read-number interactor prompt)
-              :choice (let [options-fn (first opts)
-                            options (if (fn? options-fn) (options-fn) options-fn)
-                            choice-prompt (or (second opts) "Choose: ")]
-                        (i/read-choice interactor choice-prompt options))
-              (do
-                (msg/error (str "Unsupported interactive spec: " type))
-                nil))))
-        spec))
-
 (defn execute-command!
   "执行命令。
    - 若提供额外 args，则直接传递给 handler。
@@ -56,7 +38,7 @@
            interactor (i/interactor)]
        (if (and spec (seq spec))
          (if interactor
-           (let [args (collect-args interactor spec)]
+           (let [args (i/read-args interactor spec)]
              (if (some nil? args)
                nil
                (apply execute-command! id args)))
