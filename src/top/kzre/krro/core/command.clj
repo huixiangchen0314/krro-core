@@ -10,13 +10,17 @@
 
 (defonce command-registry (atom {}))
 
-(defn register-command!
+(defn reg-command
   [id handler & {:keys [description interactive]}]
   (swap! command-registry assoc id
          {:handler     handler
           :id          id
           :description description
           :interactive (vec interactive)}))
+
+(def register-command! reg-command)
+
+
 
 (defn lookup-command [id]
   (get @command-registry id))

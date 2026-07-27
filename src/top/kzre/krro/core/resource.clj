@@ -52,17 +52,18 @@
 ;; ── 内部查找编码器（利用 Class 快速索引） ────────────────────────────────
 (defn- try-encode-object
   "为给定对象自动查找第一个可成功编码的注册编码器，传递上下文 ctx。
-   优先使用对象 class 的快速索引，避免遍历 pred 函数。"
+   优先通过对象 class 快速查找编码器；若快速路径未成功，则遍历所有 pred 函数作为回退。"
   [obj ctx]
-  (if-let [type-kw (get @class-codec-map (class obj))]
-    ;; 快速路径：直接通过 class 找到对应的编码器
-    (when-let [{:keys [encoder]} (get @codec-registry type-kw)]
-      (try
-        (let [encoded (encoder obj ctx)]
-          (when (and (primitive-map? encoded) (= (:krro/type encoded) type-kw))
-            encoded))
-        (catch Exception _ nil)))
-    ;; 慢速路径：遍历所有注册的 pred 函数
+  (or
+    ;; 快速路径：直接通过 class 找到编码器并尝试
+    (when-let [type-kw (get @class-codec-map (class obj))]
+      (when-let [{:keys [encoder]} (get @codec-registry type-kw)]
+        (try
+          (let [encoded (encoder obj ctx)]
+            (when (and (primitive-map? encoded) (= (:krro/type encoded) type-kw))
+              encoded))
+          (catch Exception _ nil))))
+    ;; 慢速路径：遍历所有注册的 pred 函数作为回退
     (some (fn [[type-kw {:keys [pred encoder]}]]
             (when (pred obj)
               (try
@@ -121,12 +122,11 @@
 
      ;; 其他 Java 对象：尝试编码
      :else
-     (let [encoded (try-encode-object data ctx)]
-       (if encoded
-         (encode encoded ctx)   ;; 递归编码代理 map
-         (throw (ex-info (str "No encoder found for object: " (pr-str data))
-                         {:object data
-                          :type   (type data)})))))))
+     (if-let [encoded (try-encode-object data ctx)]
+       (encode encoded ctx)   ;; 递归编码代理 map
+       (throw (ex-info (str "No encoder found for object: " (pr-str data))
+                       {:object data
+                        :type   (type data)}))))))
 
 ;; ── 解码（自底向上惰性，无需上下文） ──────────────────────────
 (defn- decode*
