@@ -12,9 +12,9 @@
 
 (defn reg-command
   [id handler & {:keys [description interactive]}]
-  {:pre (or (nil? interactive)
-            (boolean? interactive)
-            (vector? interactive))}
+  {:pre [(or (nil? interactive)
+             (boolean? interactive)
+             (vector? interactive))]}
   (swap! command-registry assoc id
          {:handler     handler
           :id          id
