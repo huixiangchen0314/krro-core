@@ -12,11 +12,14 @@
 
 (defn reg-command
   [id handler & {:keys [description interactive]}]
+  {:pre (or (nil? interactive)
+            (boolean? interactive)
+            (vector? interactive))}
   (swap! command-registry assoc id
          {:handler     handler
           :id          id
           :description description
-          :interactive (vec interactive)}))
+          :interactive interactive}))
 
 (def register-command! reg-command)
 
@@ -24,6 +27,13 @@
 
 (defn lookup-command [id]
   (get @command-registry id))
+
+(defn interactive-commands
+  "获取所有可执行命令"
+  []
+  (into {}
+        (filter (fn [[_ v]] (some? (:interactive v))))
+        @command-registry))
 
 (defn execute-command!
   "执行命令。
