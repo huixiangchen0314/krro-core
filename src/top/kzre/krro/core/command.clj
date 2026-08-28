@@ -6,7 +6,8 @@
    [top.kzre.krro.core.interactive :as i]
    [top.kzre.krro.core.message :as msg]
    [top.kzre.krro.core.project :as proj]
-   [top.kzre.krro.core.variable :refer [*debug*]]))
+   [top.kzre.krro.core.variable :refer [*debug*]]
+   [top.kzre.krro.core.variable :as variable]))
 
 (defonce command-registry (atom {}))
 
@@ -36,41 +37,43 @@
         @command-registry))
 
 (defn execute-command!
-  "执行命令。
-   - 若提供额外 args，则直接传递给 handler。
-   - 若无 args 且命令有 :interactive 规范，则通过交互器收集参数后执行。
-   - 否则无参执行。
-   返回 handler 的返回值（不再限定为 project）。"
   ([id]
-   (if-let [cmd (lookup-command id)]
-     (let [handler   (:handler cmd)
-           spec      (:interactive cmd)
-           interactor (i/interactor)]
-       (if (and spec (seq spec))
-         (if interactor
-           (let [args (i/read-args interactor spec)]
-             (if (some nil? args)
-               nil
-               (apply execute-command! id args)))
-           (msg/error (str "Command " id " requires interactive args, but no interactor installed")))
-         ;; 零参数直接执行
-         (try
-           (handler @proj/project)
-           (catch Exception e
-             (msg/error (str "Command execution failed: " id " - " (.getMessage e)))
-             (when *debug* (throw e))
-             nil))))
-     (msg/warn (str "Unknown command: " id))))
+   (if @variable/disable-command
+     (do
+       (msg/warn (str "Command execution disabled, cannot execute " id))
+       nil)
+     (if-let [cmd (lookup-command id)]
+       (let [handler (:handler cmd)
+             spec    (:interactive cmd)
+             interactor (i/interactor)]
+         (if (and spec (seq spec))
+           (if interactor
+             (let [args (i/read-args interactor spec)]
+               (if (some nil? args)
+                 nil
+                 (apply execute-command! id args)))
+             (msg/error (str "Command " id " requires interactive args, but no interactor installed")))
+           (try
+             (handler @proj/project)
+             (catch Exception e
+               (msg/error (str "Command execution failed: " id " - " (.getMessage e)))
+               (when *debug* (throw e))
+               nil))))
+       (msg/warn (str "Unknown command: " id)))))
   ([id & args]
-   (if-let [cmd (lookup-command id)]
-     (let [handler (:handler cmd)]
-       (try
-         (apply handler @proj/project args)
-         (catch Exception e
-           (msg/error (str "Command execution failed: " id " with args " args " - " (.getMessage e)))
-           (when *debug* (throw e))
-           nil)))
-     (msg/warn (str "Unknown command: " id)))))
+   (if @variable/disable-command
+     (do
+       (msg/warn (str "Command execution disabled, cannot execute " id " with args " args))
+       nil)
+     (if-let [cmd (lookup-command id)]
+       (let [handler (:handler cmd)]
+         (try
+           (apply handler @proj/project args)
+           (catch Exception e
+             (msg/error (str "Command execution failed: " id " with args " args " - " (.getMessage e)))
+             (when *debug* (throw e))
+             nil)))
+       (msg/warn (str "Unknown command: " id))))))
 
 (defmacro defcommand
   "定义命令并注册。语法：

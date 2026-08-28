@@ -1,23 +1,24 @@
 (ns top.kzre.krro.core.core
   "Krrō 核心入口. krro 核心包括两个部分，应用的核心抽象，已经推荐使用应用模式."
   (:require
-   [top.kzre.krro.core.command :as cmd]
-   [top.kzre.krro.core.commands]
-   [top.kzre.krro.core.reframe]
-   [top.kzre.krro.core.frame :as frame]
-   [top.kzre.krro.core.hook]
-   [top.kzre.krro.core.keymap]
-   [top.kzre.krro.core.message]
-   [top.kzre.krro.core.mode :as mode]
-   [top.kzre.krro.core.plugin]
-   [top.kzre.krro.core.plugins]
-   [top.kzre.krro.core.project :as proj]
-   [top.kzre.krro.core.rdb :as rdb]
-   [top.kzre.krro.core.resource]
-   [top.kzre.krro.core.resources]
-   [top.kzre.krro.core.util.naming :as naming]
-   [top.kzre.krro.core.ui.protocol :as ui]
-   [top.kzre.krro.core.custom :as custom]))
+    [top.kzre.krro.core.command :as cmd]
+    [top.kzre.krro.core.commands]
+    [top.kzre.krro.core.reframe]
+    [top.kzre.krro.core.frame :as frame]
+    [top.kzre.krro.core.hook]
+    [top.kzre.krro.core.keymap]
+    [top.kzre.krro.core.message]
+    [top.kzre.krro.core.mode :as mode]
+    [top.kzre.krro.core.plugin]
+    [top.kzre.krro.core.plugins]
+    [top.kzre.krro.core.project :as proj]
+    [top.kzre.krro.core.rdb :as rdb]
+    [top.kzre.krro.core.resource]
+    [top.kzre.krro.core.resources]
+    [top.kzre.krro.core.util.naming :as naming]
+    [top.kzre.krro.core.ui.protocol :as ui]
+    [top.kzre.krro.core.custom :as custom]
+    [top.kzre.krro.core.variable :as variable]))
 
 (defn rerender!
   "重新渲染当前 Frame 的布局。可从模式中重新获取 layout 并触发 UI 更新。"
@@ -85,6 +86,28 @@
      (init!)
      ~@body))
 
+
+(defn with-command-disabled-fn
+  "在函数 f 执行期间禁用命令，执行后恢复原状态（无论是否异常）。
+   返回 f 的返回值。"
+  [f & args]
+  (let [old-value @variable/disable-command]
+    (try
+      (reset! variable/disable-command true)
+      (apply f args)
+      (finally
+        (reset! variable/disable-command old-value)))))
+
+
+(defmacro with-command-disabled
+  "执行 body 时禁用命令，执行后恢复原状态。"
+  [& body]
+  `(let [old-value# @variable/disable-command]
+     (try
+       (reset! @variable/disable-command true)
+       ~@body
+       (finally
+         (reset! @variable/disable-command old-value#)))))
 
 
 ;; ═══════════════════════════════════════════════════════
