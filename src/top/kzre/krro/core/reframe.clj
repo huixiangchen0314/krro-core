@@ -6,7 +6,7 @@
   (:require [clojure.core.async :as async :refer [go <! >! chan go-loop close!]])
   (:import (clojure.lang IDeref)))
 
-(declare mark-dirty! subscribe execute-fx invalidate-record-signal process-event)
+(declare mark-dirty! subscribe execute-fx invalidate-record-signal process-event dispatch)
 
 ;; ═══════════════════════════════════════
 ;; 内部状态
@@ -302,9 +302,16 @@
                                 (get-in (base-context app-id event-v) [:coeffects :record])))]
     (case handler-type
       (:record :fx :ctx)
-      (let [ctx (apply-interceptors interceptors context handler handler-type)]
+      (let [ctx (apply-interceptors interceptors context handler handler-type)
+            effects (:effects ctx)
+            fx-list (or (:fx effects) [])
+            dispatch-event (:dispatch effects)
+            dispatch-n-events (:dispatch-n effects)
+            final-fx (cond-> fx-list
+                             dispatch-event (conj [:dispatch dispatch-event])
+                             dispatch-n-events (conj [:dispatch-n dispatch-n-events]))]
         ((:setter store) record-id (get-in ctx [:effects :record]))
-        (when-let [fx (get-in ctx [:effects :fx])] (execute-fx app-id fx))
+        (when (seq final-fx) (execute-fx app-id final-fx))
         (invalidate-record-signal app-id record-id)
         (notify-listeners app-id record-id))
 
@@ -314,20 +321,18 @@
                                context interceptors)
             cofx    (get-in ctx-before [:coeffects])
             event-v (get-in ctx-before [:coeffects :event])
-            ch      (handler cofx event-v)]   ;; 直接传递事件向量
+            ch      (handler cofx event-v)]
         (go
           (let [result (<! ch)
                 record-result (if (map? result) (:record result) result)
-                fx            (when (map? result) (:fx result))
-                ctx-after-handler (-> ctx-before
-                                      (assoc-in [:effects :record] record-result)
-                                      (assoc-in [:effects :fx] (or fx [])))
-                ctx-final (reduce (fn [ctx interceptor]
-                                    (if-let [f (:after interceptor)] (f ctx) ctx))
-                                  ctx-after-handler
-                                  (reverse interceptors))]
-            ((:setter store) record-id (get-in ctx-final [:effects :record]))
-            (when-let [fx (get-in ctx-final [:effects :fx])] (execute-fx app-id fx))
+                fx (when (map? result) (:fx result))
+                dispatch-event (when (map? result) (:dispatch result))
+                dispatch-n-events (when (map? result) (:dispatch-n result))
+                final-fx (cond-> (or fx [])
+                                 dispatch-event (conj [:dispatch dispatch-event])
+                                 dispatch-n-events (conj [:dispatch-n dispatch-n-events]))]
+            ((:setter store) record-id record-result)
+            (when (seq final-fx) (execute-fx app-id final-fx))
             (invalidate-record-signal app-id record-id)
             (notify-listeners app-id record-id)))))))
 
@@ -337,8 +342,19 @@
 
 (defn- execute-fx [app-id fx-vec]
   (doseq [[fx-id & args] fx-vec]
-    (if-let [fx-fn (get-in @fx-handlers [app-id fx-id])]
-      (apply fx-fn app-id args)
+    (cond
+      (= fx-id :dispatch)
+      (let [event-v (first args)]
+        (dispatch app-id event-v))
+
+      (= fx-id :dispatch-n)
+      (doseq [event-v (first args)]
+        (dispatch app-id event-v))
+
+      (get-in @fx-handlers [app-id fx-id])
+      (apply (get-in @fx-handlers [app-id fx-id]) app-id args)
+
+      :else
       (throw (ex-info (str "Unknown fx: " fx-id " for app-id: " app-id)
                       {:app-id app-id :fx-id fx-id})))))
 
