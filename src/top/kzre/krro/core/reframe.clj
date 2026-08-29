@@ -272,8 +272,9 @@
           :fx
           (let [cofx   (get-in ctx-before [:coeffects])
                 result (handler-fn cofx event-v)
-                {:keys [record new-record fx]} (if (map? result) result {:record result})
-                final-record (or new-record record)]
+                {:keys [record fx]} (if (map? result) result {:record result})
+                old-record (get-in ctx-before [:coeffects :record])
+                final-record (or record old-record)]   ;; 不允许删除记录
             (-> ctx-before
                 (assoc-in [:effects :record] final-record)
                 (assoc-in [:effects :fx] (or fx []))))
@@ -306,12 +307,13 @@
             effects (:effects ctx)
             fx-list (or (:fx effects) [])
             dispatch-event (:dispatch effects)
-            dispatch-n-events (:dispatch-n effects)
-            final-fx (cond-> fx-list
-                             dispatch-event (conj [:dispatch dispatch-event])
-                             dispatch-n-events (conj [:dispatch-n dispatch-n-events]))]
+            dispatch-n-events (:dispatch-n effects)]
         ((:setter store) record-id (get-in ctx [:effects :record]))
-        (when (seq final-fx) (execute-fx app-id final-fx))
+        ;; 先执行自定义副作用列表
+        (when (seq fx-list) (execute-fx app-id fx-list))
+        ;; 再单独处理事件分发（不混入 fx-list）
+        (when dispatch-event (dispatch app-id dispatch-event))
+        (when dispatch-n-events (doseq [ev dispatch-n-events] (dispatch app-id ev)))
         (invalidate-record-signal app-id record-id)
         (notify-listeners app-id record-id))
 
@@ -327,12 +329,11 @@
                 record-result (if (map? result) (:record result) result)
                 fx (when (map? result) (:fx result))
                 dispatch-event (when (map? result) (:dispatch result))
-                dispatch-n-events (when (map? result) (:dispatch-n result))
-                final-fx (cond-> (or fx [])
-                                 dispatch-event (conj [:dispatch dispatch-event])
-                                 dispatch-n-events (conj [:dispatch-n dispatch-n-events]))]
+                dispatch-n-events (when (map? result) (:dispatch-n result))]
             ((:setter store) record-id record-result)
-            (when (seq final-fx) (execute-fx app-id final-fx))
+            (when (seq fx) (execute-fx app-id fx))
+            (when dispatch-event (dispatch app-id dispatch-event))
+            (when dispatch-n-events (doseq [ev dispatch-n-events] (dispatch app-id ev)))
             (invalidate-record-signal app-id record-id)
             (notify-listeners app-id record-id)))))))
 
@@ -343,14 +344,6 @@
 (defn- execute-fx [app-id fx-vec]
   (doseq [[fx-id & args] fx-vec]
     (cond
-      (= fx-id :dispatch)
-      (let [event-v (first args)]
-        (dispatch app-id event-v))
-
-      (= fx-id :dispatch-n)
-      (doseq [event-v (first args)]
-        (dispatch app-id event-v))
-
       (get-in @fx-handlers [app-id fx-id])
       (apply (get-in @fx-handlers [app-id fx-id]) app-id args)
 
