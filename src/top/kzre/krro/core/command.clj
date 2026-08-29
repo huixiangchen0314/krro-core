@@ -38,10 +38,7 @@
 
 (defn execute-command!
   ([id]
-   (if @variable/disable-command
-     (do
-       (msg/warn (str "Command execution disabled, cannot execute " id))
-       nil)
+   (if @variable/command-enabled
      (if-let [cmd (lookup-command id)]
        (let [handler (:handler cmd)
              spec    (:interactive cmd)
@@ -59,12 +56,13 @@
                (msg/error (str "Command execution failed: " id " - " (.getMessage e)))
                (when *debug* (throw e))
                nil))))
-       (msg/warn (str "Unknown command: " id)))))
-  ([id & args]
-   (if @variable/disable-command
+       (msg/warn (str "Unknown command: " id)))
+     ;; else
      (do
-       (msg/warn (str "Command execution disabled, cannot execute " id " with args " args))
-       nil)
+       (msg/warn (str "Command execution disabled, cannot execute " id))
+       nil)))
+  ([id & args]
+   (if @variable/command-enabled
      (if-let [cmd (lookup-command id)]
        (let [handler (:handler cmd)]
          (try
@@ -73,7 +71,11 @@
              (msg/error (str "Command execution failed: " id " with args " args " - " (.getMessage e)))
              (when *debug* (throw e))
              nil)))
-       (msg/warn (str "Unknown command: " id))))))
+       (msg/warn (str "Unknown command: " id)))
+     ;; else
+     (do
+       (msg/warn (str "Command execution disabled, cannot execute " id " with args " args))
+       nil))))
 
 (defmacro defcommand
   "定义命令并注册。语法：

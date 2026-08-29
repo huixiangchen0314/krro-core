@@ -4,4 +4,4 @@
 (def ^:dynamic *debug* true)
 
 ;; 全局命令禁用
-(defonce disable-command (atom false))
+(defonce command-enabled (atom true))

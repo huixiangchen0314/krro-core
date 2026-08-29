@@ -91,23 +91,23 @@
   "在函数 f 执行期间禁用命令，执行后恢复原状态（无论是否异常）。
    返回 f 的返回值。"
   [f & args]
-  (let [old-value @variable/disable-command]
+  (let [old-value @variable/command-enabled]
     (try
-      (reset! variable/disable-command true)
+      (reset! variable/command-enabled false)
       (apply f args)
       (finally
-        (reset! variable/disable-command old-value)))))
+        (reset! variable/command-enabled old-value)))))
 
 
 (defmacro with-command-disabled
   "执行 body 时禁用命令，执行后恢复原状态。"
   [& body]
-  `(let [old-value# @variable/disable-command]
+  `(let [old-value# @variable/command-enabled]
      (try
-       (reset! @variable/disable-command true)
+       (reset! @variable/command-enabled false)
        ~@body
        (finally
-         (reset! @variable/disable-command old-value#)))))
+         (reset! @variable/command-enabled old-value#)))))
 
 
 ;; ═══════════════════════════════════════════════════════
