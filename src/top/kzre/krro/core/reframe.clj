@@ -272,12 +272,14 @@
           :fx
           (let [cofx   (get-in ctx-before [:coeffects])
                 result (handler-fn cofx event-v)
-                {:keys [record fx]} (if (map? result) result {:record result})
+                {:keys [record fx dispatch dispatch-n]} (if (map? result) result {:record result})
                 old-record (get-in ctx-before [:coeffects :record])
                 final-record (or record old-record)]   ;; 不允许删除记录
             (-> ctx-before
                 (assoc-in [:effects :record] final-record)
-                (assoc-in [:effects :fx] (or fx []))))
+                (assoc-in [:effects :fx] (or fx []))
+                (cond-> (some? dispatch) (assoc-in [:effects :dispatch] dispatch)
+                        (some? dispatch-n) (assoc-in [:effects :dispatch-n] dispatch-n))))
 
           :ctx (handler-fn ctx-before))
 
@@ -312,7 +314,9 @@
         ;; 先执行自定义副作用列表
         (when (seq fx-list) (execute-fx app-id fx-list))
         ;; 再单独处理事件分发（不混入 fx-list）
-        (when dispatch-event (dispatch app-id dispatch-event))
+        (when dispatch-event
+          (println "dispatch event" dispatch-event)
+          (dispatch app-id dispatch-event))
         (when dispatch-n-events (doseq [ev dispatch-n-events] (dispatch app-id ev)))
         (invalidate-record-signal app-id record-id)
         (notify-listeners app-id record-id))
