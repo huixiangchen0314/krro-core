@@ -11,8 +11,27 @@
 (defn clean [_]
       (b/delete {:path "target"}))
 
+(defn compile-java [_]
+      (b/javac {:src-dirs ["src"]
+                :class-dir class-dir
+                :basis basis}))
+
+
+(defn- copy-clj-sources []
+       (let [src-dir (java.io.File. "src")
+             target-dir (java.io.File. class-dir)]
+            (when (.exists src-dir)
+                  (doseq [^java.io.File f (file-seq src-dir)
+                          :when (and (.isFile f) (.endsWith (.getName f) ".clj"))]
+                         (let [rel-path (-> (.toPath src-dir) (.relativize (.toPath f)))
+                               dest (java.io.File. target-dir (.toString rel-path))]
+                              (.mkdirs (.getParentFile dest))
+                              (java.nio.file.Files/copy (.toPath f) (.toPath dest)
+                                                        (make-array java.nio.file.CopyOption 0)))))))
+
 (defn jar [_]
       (clean nil)
+      (compile-java nil)
       (b/write-pom {:class-dir class-dir
                     :lib lib
                     :version version
@@ -21,10 +40,8 @@
                     :scm {:url "https://github.com/topkzre/krro-core"
                           :connection "scm:git:git://github.com/topkzre/krro-core.git"
                           :developerConnection "scm:git:ssh://git@github.com:topkzre/krro-core.git"}})
-      (b/copy-dir {:src-dirs ["src" "resources"] :target-dir class-dir})
+      (copy-clj-sources)
+      (b/copy-dir {:src-dirs [ "resources"] :target-dir class-dir})
       (b/jar {:class-dir class-dir
               :jar-file jar-file})
       (println "Jar created:" jar-file))
-
-(defn test-all [_]
-      (b/process {:command-args ["clojure" "-M:test"]}))

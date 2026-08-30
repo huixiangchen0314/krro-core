@@ -315,7 +315,6 @@
         (when (seq fx-list) (execute-fx app-id fx-list))
         ;; 再单独处理事件分发（不混入 fx-list）
         (when dispatch-event
-          (println "dispatch event" dispatch-event)
           (dispatch app-id dispatch-event))
         (when dispatch-n-events (doseq [ev dispatch-n-events] (dispatch app-id ev)))
         (invalidate-record-signal app-id record-id)
