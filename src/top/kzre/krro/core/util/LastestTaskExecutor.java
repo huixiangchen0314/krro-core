@@ -9,20 +9,31 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 每个键只保留最新提交的任务，旧任务被丢弃。
  * 所有任务在单一线程中顺序执行。
  */
-public final class LastTaskExecutor {
-    private final ConcurrentHashMap<Object, Runnable> tasks = new ConcurrentHashMap<>();
+public final class LastestTaskExecutor {
+    private final ConcurrentHashMap<Object, TaskParams> tasks = new ConcurrentHashMap<>();
     private final LinkedBlockingQueue<Object> queue = new LinkedBlockingQueue<>();
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final Thread worker;
+    private final TaskDefinition taskDef;
 
-    public LastTaskExecutor() {
+    public interface TaskParams {
+        Object key();
+    }
+
+    public interface TaskDefinition {
+        TaskParams mergeTask(TaskParams current, TaskParams newParams);
+        void runTask(TaskParams params);
+    }
+
+    public LastestTaskExecutor(TaskDefinition taskDef) {
+        this.taskDef = taskDef;
         worker = new Thread(() -> {
             while (running.get()) {
                 try {
-                    Object key = queue.take();                  // 阻塞等待键
-                    Runnable task = tasks.remove(key);         // 取出并移除任务
-                    if (task != null) {
-                        task.run();                             // 执行最新任务
+                    Object key = queue.take();
+                    TaskParams params = tasks.remove(key);
+                    if (params != null) {
+                        taskDef.runTask(params);
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -34,34 +45,25 @@ public final class LastTaskExecutor {
         worker.start();
     }
 
-    /**
-     * 提交一个任务，与给定的键关联。
-     * 如果该键已有未执行的任务，旧任务将被新任务覆盖。
-     *
-     * @param key  分类键
-     * @param task 要执行的任务
-     * @throws IllegalStateException 如果执行器已关闭
-     */
-    public void submit(Object key, Runnable task) {
+    public void submit(Object key, TaskParams params) {
         if (!running.get()) {
             throw new IllegalStateException("Executor is shut down");
         }
-        tasks.put(key, task);           // 覆盖旧任务
-        queue.offer(key);               // 通知工作线程（即使键已存在，offer 仍然成功）
+        tasks.compute(key, (k, old) -> {
+            if (old == null) {
+                queue.offer(key);
+                return params;
+            } else {
+                return taskDef.mergeTask(old, params);
+            }
+        });
     }
 
-    /**
-     * 关闭执行器，不再接受新任务。
-     * 已提交的任务仍会执行完毕。
-     */
     public void shutdown() {
         running.set(false);
         worker.interrupt();
     }
 
-    /**
-     * 等待执行器终止（即工作线程结束）。
-     */
     public void awaitTermination() throws InterruptedException {
         worker.join();
     }
