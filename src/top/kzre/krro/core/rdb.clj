@@ -4,7 +4,9 @@
    支持表定义、约束验证（非空、唯一、外键）、CRUD 操作、
    事务性批量更新以及关联查询（inner join / left join）。
    所有写操作（insert!、update!、delete!）返回受影响的主键。
-   外键支持 :column 或 :extractor 动态计算引用值。")
+   外键支持 :column 或 :extractor 动态计算引用值。"
+  (:require
+   [clojure.spec.alpha :as s]))
 
 ;; ═══════════════════════════════════════════════════════════
 ;; Schema 定义（全局共享，与特定 db 实例无关）
@@ -30,7 +32,7 @@
                                             :on-delete  :cascade 或 :restrict (默认 :restrict)
                                             :on-update  :cascade 或 :restrict (默认 :restrict)}
                     :column 和 :extractor 至少提供一个。"
-  [table-id & {:keys [primary-key unique not-null foreign-keys defaults]
+  [table-id & {:keys [primary-key unique not-null foreign-keys spec defaults]
                :or   {primary-key :id}}]
   ;; 验证外键定义
   (doseq [fk foreign-keys]
@@ -38,6 +40,7 @@
       (throw (ex-info "Foreign key must have :column or :extractor" {:fk fk}))))
   (swap! schemas assoc table-id
          {:primary-key  primary-key
+          :spec         spec
           :unique       (if (coll? unique) (set unique) (set (when unique [unique])))
           :not-null     (set not-null)
           :foreign-keys (vec foreign-keys)
@@ -52,7 +55,13 @@
 
 (defn- validate-row [schema row]
   (when schema
-    (let [{:keys [primary-key not-null]} schema]
+    (let [{:keys [primary-key not-null spec]} schema]
+      (when spec
+        (when-not (s/valid? spec row)
+          (throw (ex-info (str "Spec validation failed for row with primary key " primary-key)
+                          {:row row
+                           :spec spec
+                           :explain (s/explain-data spec row)}))))
       (when (and (contains? not-null primary-key) (nil? (get row primary-key)))
         (throw (ex-info (str "Primary key " primary-key " cannot be null") {:row row})))
       (doseq [col not-null]
