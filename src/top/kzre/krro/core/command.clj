@@ -41,7 +41,8 @@
    (if @variable/command-enabled
      (if-let [cmd (lookup-command id)]
        (let [handler (:handler cmd)
-             spec    (:interactive cmd)
+             spec    (when-let [i (:interactive cmd)]
+                       (when-not (boolean? i) i))
              interactor (i/interactor)]
          (if (and spec (seq spec))
            (if interactor

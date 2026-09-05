@@ -58,10 +58,11 @@
     (let [{:keys [primary-key not-null spec]} schema]
       (when spec
         (when-not (s/valid? spec row)
-          (throw (ex-info (str "Spec validation failed for row with primary key " primary-key)
-                          {:row row
-                           :spec spec
-                           :explain (s/explain-data spec row)}))))
+          (let [explan (s/explain-data spec row)]
+            (throw (ex-info (str "Spec validation failed for row with primary key " primary-key)
+                            {:row row
+                             :spec spec
+                             :explain explan})))))
       (when (and (contains? not-null primary-key) (nil? (get row primary-key)))
         (throw (ex-info (str "Primary key " primary-key " cannot be null") {:row row})))
       (doseq [col not-null]
