@@ -18,7 +18,7 @@
   (swap! global-keymap assoc-in key-vec command-id))
 
 ;; ── 键图构造 ────────────────────────────────
-(defn make-keymap
+(defn keymap*
   "根据平面键绑定 map 生成嵌套键图。
    绑定表的键可以是：
      - 关键字（单键，如 :u）
@@ -43,6 +43,21 @@
           (throw (ex-info "Key sequence must not be empty" {})))))
     {}
     bindings))
+(def make-keymap keymap*)
+
+
+(defmacro keymap
+  "根据平面键绑定 map 生成嵌套键图。
+   绑定表的键可以是：
+     - 关键字（单键，如 :u）
+     - 键序列向量（如 [:C-x :u]）
+   值为命令关键字或前缀键图。
+   返回生成好的嵌套键图 map。
+   示例：
+     (make-keymap {:u :undo, [:C-x :u] :save})
+     => {:u :undo, :C-x {:u :save}}"
+  [bindings]
+  (keymap* bindings))
 
 ;; ── 键序列前缀栈 ───────────────────────────
 (defonce prefix-stack (atom []))

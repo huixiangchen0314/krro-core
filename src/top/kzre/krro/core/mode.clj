@@ -10,7 +10,8 @@
    [top.kzre.krro.core.keymap :as km]
    [top.kzre.krro.core.message :as msg]
    [top.kzre.krro.core.ui.protocol :as ui]
-   [top.kzre.krro.core.util.naming :as naming]))
+   [top.kzre.krro.core.util.naming :as naming]
+   [top.kzre.krro.core.window :as win]))
 
 
 ;; ── Hook 关键字生成 ──────────────────────────────
@@ -22,16 +23,15 @@
 
 ;; ── 模式注册表 ──────────────────────────────────
 (defonce ^:private mode-registry (atom {}))
-
+;; TODO name 换成可选参数
 (defn make-major-mode
   [id name & {:keys [parent keymap layout variables after-hook]
               :or {parent :krro.core/fundamental}}]
-  ;; 内部属性用普通关键字
-  (merge {:id id, :name name, :parent parent}
-         (when keymap {:keymap keymap})
-         (when layout {:layout layout})
-         (when variables {:variables variables})
-         (when after-hook {:after-hook after-hook})))
+  (cond-> {:id id, :name name, :parent parent}
+          keymap  (assoc :keymap (km/make-keymap keymap))
+          layout  (assoc :layout layout)
+          variables (assoc :variables variables)
+          after-hook (assoc :after-hook after-hook)))
 
 (defn make-minor-mode
   [id name & {:keys [keymap variables after-hook]}]
@@ -132,7 +132,7 @@
 
 
 (defn activate-major-mode!
-  ([mode-id] (activate-major-mode! mode-id frame/*current-frame*))
+  ([mode-id] (activate-major-mode! mode-id (win/active-frame)))
   ([mode-id f]
    (if-let [spec (get-mode-spec mode-id)]
      (let [old-major (frame/major-mode f)]
@@ -146,18 +146,18 @@
 
 
 (defn fundamental-activate!
-  ([] (fundamental-activate! frame/*current-frame*))
+  ([] (fundamental-activate! (win/active-frame)))
   ([f] (activate-major-mode! :krro.core/fundamental f)))
 
 (defn deactivate-mode!
-  ([spec] (deactivate-mode! spec frame/*current-frame*))
+  ([spec] (deactivate-mode! spec (win/active-frame)))
   ([spec f]
    (let [mode-id (:id spec)]
      (exit-major-mode! mode-id f)
      (fundamental-activate! f))))
 
 (defn activate-minor-mode!
-  ([mode-id] (activate-minor-mode! mode-id frame/*current-frame*))
+  ([mode-id] (activate-minor-mode! mode-id (win/active-frame)))
   ([mode-id f]
    (if-let [spec (get-mode-spec mode-id)]
      (let [active-minors (frame/minor-modes f)]
@@ -169,7 +169,7 @@
      (msg/error (str "Minor mode not registered: " mode-id)))))
 
 (defn deactivate-minor-mode!
-  ([mode-id] (deactivate-minor-mode! mode-id frame/*current-frame*))
+  ([mode-id] (deactivate-minor-mode! mode-id (win/active-frame)))
   ([mode-id f]
    (if-let [spec (get-mode-spec mode-id)]
      (let [active-minors (frame/minor-modes f)]
@@ -180,7 +180,7 @@
      (msg/error (str "Minor mode not registered: " mode-id)))))
 
 (defn toggle-minor-mode!
-  ([mode-id] (toggle-minor-mode! mode-id frame/*current-frame*))
+  ([mode-id] (toggle-minor-mode! mode-id (win/active-frame)))
   ([mode-id f]
    (if (contains? (frame/minor-modes f) mode-id)
      (deactivate-minor-mode! mode-id f)

@@ -1,28 +1,29 @@
 (ns top.kzre.krro.core.core
   "Krrō 核心入口. krro 核心包括两个部分，应用的核心抽象，已经推荐使用应用模式."
   (:require
-    [top.kzre.krro.core.command :as cmd]
-    [top.kzre.krro.core.commands]
-    [top.kzre.krro.core.reframe]
-    [top.kzre.krro.core.frame :as frame]
-    [top.kzre.krro.core.hook]
-    [top.kzre.krro.core.keymap]
-    [top.kzre.krro.core.message]
-    [top.kzre.krro.core.mode :as mode]
-    [top.kzre.krro.core.plugin]
-    [top.kzre.krro.core.plugins]
-    [top.kzre.krro.core.project :as proj]
-    [top.kzre.krro.core.rdb :as rdb]
-    [top.kzre.krro.core.resource]
-    [top.kzre.krro.core.resources]
-    [top.kzre.krro.core.util.naming :as naming]
-    [top.kzre.krro.core.ui.protocol :as ui]
-    [top.kzre.krro.core.custom :as custom]
-    [top.kzre.krro.core.variable :as variable]))
+   [top.kzre.krro.core.command :as cmd]
+   [top.kzre.krro.core.commands]
+   [top.kzre.krro.core.custom :as custom]
+   [top.kzre.krro.core.frame :as frame]
+   [top.kzre.krro.core.hook]
+   [top.kzre.krro.core.keymap]
+   [top.kzre.krro.core.message]
+   [top.kzre.krro.core.mode :as mode]
+   [top.kzre.krro.core.plugin]
+   [top.kzre.krro.core.plugins]
+   [top.kzre.krro.core.project :as proj]
+   [top.kzre.krro.core.rdb :as rdb]
+   [top.kzre.krro.core.reframe]
+   [top.kzre.krro.core.resource]
+   [top.kzre.krro.core.resources]
+   [top.kzre.krro.core.ui.protocol :as ui]
+   [top.kzre.krro.core.util.naming :as naming]
+   [top.kzre.krro.core.window :as win]
+   [top.kzre.krro.core.window-impl :as window-impl]))
 
 (defn rerender!
   "重新渲染当前 Frame 的布局。可从模式中重新获取 layout 并触发 UI 更新。"
-  ([] (rerender! frame/*current-frame*))
+  ([] (rerender! (win/active-frame)))
   ([f]
    (when-let [mode-id (frame/major-mode f)]
      (when-let [spec (mode/get-mode-spec mode-id)]
@@ -34,6 +35,11 @@
 
 (defonce ^:private initialized? (atom false))
 
+(def create-window! window-impl/create-window!)
+(def active-frame win/active-frame)
+(def active-window win/active-window)
+(def all-windows win/all-windows)
+(def split-frame-horizontal! win/split-frame-horizontal!)
 ;; custom
 (def defcustom custom/defcustom)
 (def get-custom custom/get-custom)
@@ -95,35 +101,35 @@
 ;; ═══════════════════════════════════════════════════════
 
 (defmacro defmajor
-  [mode-id docstring & {:as opts}]
+  [mode-id name & {:as opts}]
   (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode!")
         deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "deactivate-mode!")]
     `(do
-       (mode/register-mode! (mode/make-major-mode ~mode-id ~docstring ~@(flatten (seq opts))))
+       (mode/register-mode! (mode/make-major-mode ~mode-id ~name ~@(flatten (seq opts))))
        (cmd/register-command! ~activate-cmd
                               (fn [project#] (mode/activate-major-mode! ~mode-id) project#)
-                              :description (str "Activate " ~docstring " mode"))
+                              :description (str "Activate " ~name " mode"))
        (cmd/register-command! ~deactivate-cmd
                               (fn [project#] (mode/deactivate-mode! (mode/get-mode-spec ~mode-id)) project#)
-                              :description (str "Deactivate " ~docstring " mode")))))
+                              :description (str "Deactivate " ~name " mode")))))
 
 (defmacro defminor
   "定义副模式并注册 activate / deactivate / toggle 命令。"
-  [mode-id docstring & {:as opts}]
+  [mode-id name & {:as opts}]
   (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode!")
         deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "-mode!")
         toggle-cmd     (naming/naming-keyword-around mode-id "toggle-" "-mode!")]
     `(do
-       (mode/register-mode! (mode/make-minor-mode ~mode-id ~docstring ~@(flatten (seq opts))))
+       (mode/register-mode! (mode/make-minor-mode ~mode-id ~name ~@(flatten (seq opts))))
        (cmd/register-command! ~activate-cmd
                               (fn [project#] (mode/activate-minor-mode! ~mode-id) project#)
-                              :description (str "Activate " ~docstring " minor mode"))
+                              :description (str "Activate " ~name " minor mode"))
        (cmd/register-command! ~deactivate-cmd
                               (fn [project#] (mode/deactivate-minor-mode! ~mode-id) project#)
-                              :description (str "Deactivate " ~docstring " minor mode"))
+                              :description (str "Deactivate " ~name " minor mode"))
        (cmd/register-command! ~toggle-cmd
                               (fn [project#] (mode/toggle-minor-mode! ~mode-id) project#)
-                              :description (str "Toggle " ~docstring " minor mode")))))
+                              :description (str "Toggle " ~name " minor mode")))))
 
 
 ;; ═══════════════════════════════════════════════════════

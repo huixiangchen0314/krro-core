@@ -6,8 +6,7 @@
    [top.kzre.krro.core.interactive :as i]
    [top.kzre.krro.core.message :as msg]
    [top.kzre.krro.core.project :as proj]
-   [top.kzre.krro.core.variable :refer [*debug*]]
-   [top.kzre.krro.core.variable :as variable]))
+   [top.kzre.krro.core.variable :as variable :refer [*debug*]]))
 
 (defonce command-registry (atom {}))
 

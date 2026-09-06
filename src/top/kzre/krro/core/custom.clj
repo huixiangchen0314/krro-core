@@ -2,8 +2,9 @@
   "用户配置系统。全局默认值 + Frame‑local 绑定（通过 IFrame 专用字段）。
    支持分组、类型、文档等元数据。"
   (:require
-    [top.kzre.krro.core.frame :as frame]
-    [top.kzre.krro.core.hook :as hook]))
+   [top.kzre.krro.core.frame :as frame]
+   [top.kzre.krro.core.hook :as hook]
+   [top.kzre.krro.core.window :as win]))
 
 (defonce custom-registry (atom {}))
 
@@ -47,7 +48,7 @@
 
 ;; ── 获取有效值（自动考虑 Frame‑local） ──
 (defn get-custom
-  ([id] (get-custom id frame/*current-frame*))
+  ([id] (get-custom id (win/active-frame)))
   ([id f]
    (when-let [entry (get @custom-registry id)]
      (if f
@@ -70,14 +71,14 @@
 
 ;; ── Frame‑local 操作（不触发全局钩子）───
 (defn set-custom-local!
-  ([id value] (set-custom-local! id value frame/*current-frame*))
+  ([id value] (set-custom-local! id value (win/active-frame)))
   ([id value f]
    (when (and f (get @custom-registry id))
      (check-type! (get @custom-registry id) value)
      (frame/set-local-custom! f id value))))
 
 (defn kill-local-custom!
-  ([id] (kill-local-custom! id frame/*current-frame*))
+  ([id] (kill-local-custom! id (win/active-frame)))
   ([id f]
    (when f
      (frame/remove-local-custom! f id))))

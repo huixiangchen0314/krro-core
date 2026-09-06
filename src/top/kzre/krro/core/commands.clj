@@ -5,7 +5,8 @@
             [top.kzre.krro.core.message :as msg]
             [top.kzre.krro.core.custom :as custom]
             [top.kzre.krro.core.mode :as mode]
-            [top.kzre.krro.core.plugin :as plugin]))
+            [top.kzre.krro.core.plugin :as plugin]
+            [top.kzre.krro.core.window :as win]))
 
 (defn- inspect
   "输出当前 Krrō 系统状态。"
@@ -50,14 +51,23 @@
       (msg/message (str "  " m))))
   project)
 
+(defn split-frame-horizontal! [_]
+  (win/split-frame-horizontal!))
+
 ;; ── 注册命令 ──────────────────────────────────────────
 
 (cmd/register-command! :krro.core/inspect inspect
-                       :description "Print current system state")
+                       :description "Print current system state"
+                       :interactive true)
 
 (cmd/register-command! :krro.core/describe-mode describe-mode
-                       :description "Describe the current major mode")
+                       :description "Describe the current major mode"
+                       :interactive true)
 
 (cmd/register-command! :krro.core/apropos apropos
                        :description "Search registered commands by name"
                        :interactive [:string])
+
+(cmd/register-command! :krro.core/split-frame-horizontal split-frame-horizontal!
+                       :description "Split current window as horizontal"
+                       :interactive true)
