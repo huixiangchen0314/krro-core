@@ -67,13 +67,14 @@
 (def activate-minor-mode! mode/activate-minor-mode!)
 (def deactivate-minor-mode! mode/deactivate-minor-mode!)
 (def toggle-minor-mode! mode/toggle-minor-mode!)
-(def deactivate-mode! mode/deactivate-mode!)
+(def deactivate-mode! mode/deactivate-major-mode!)
 (def fundamental-activate! mode/fundamental-activate!)
 (def make-major-mode mode/make-major-mode)
 (def make-minor-mode mode/make-minor-mode)
 (def register-mode! mode/register-mode!)
 (def get-mode-spec mode/get-mode-spec)
-
+(def define-major-mode mode/define-major-mode)
+(def define-minor-mode mode/define-minor-mode)
 
 (defn init!
   "初始化 Krrō 核心系统。创建默认 Frame 并设置为当前活动 Frame。
@@ -96,38 +97,38 @@
 
 
 
-;; ═══════════════════════════════════════════════════════
-;; 模式定义宏：自动注册模式与命令
-;; ═══════════════════════════════════════════════════════
-
-(defmacro defmajor
+(defn ^:deprecated defmajor
+  "注册一个 major mode 并生成激活/停用命令。
+   参数：
+     - mode-id: mode 的唯一标识符（关键字）
+     - name:    mode 的显示名称（字符串）
+     - opts:    额外的键值对选项，会原样传递给 mode/make-major-mode"
   [mode-id name & {:as opts}]
   (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode!")
         deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "deactivate-mode!")]
-    `(do
-       (mode/register-mode! (mode/make-major-mode ~mode-id ~name ~@(flatten (seq opts))))
-       (cmd/register-command! ~activate-cmd
-                              (fn [project#] (mode/activate-major-mode! ~mode-id) project#)
-                              :description (str "Activate " ~name " mode"))
-       (cmd/register-command! ~deactivate-cmd
-                              (fn [project#] (mode/deactivate-mode! (mode/get-mode-spec ~mode-id)) project#)
-                              :description (str "Deactivate " ~name " mode")))))
+    (mode/register-mode! (apply mode/make-major-mode mode-id  (flatten (seq (assoc opts :name name)))))
+    (cmd/reg-command activate-cmd
+                           (fn [project] (mode/activate-major-mode! mode-id) project)
+                           :description (str "Activate " name " mode"))
+    (cmd/reg-command deactivate-cmd
+                           (fn [project] (mode/deactivate-major-mode! mode-id) project)
+                           :description (str "Deactivate " name " mode"))))
 
-(defmacro defminor
+(defmacro ^:deprecated  defminor
   "定义副模式并注册 activate / deactivate / toggle 命令。"
   [mode-id name & {:as opts}]
   (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode!")
         deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "-mode!")
         toggle-cmd     (naming/naming-keyword-around mode-id "toggle-" "-mode!")]
     `(do
-       (mode/register-mode! (mode/make-minor-mode ~mode-id ~name ~@(flatten (seq opts))))
-       (cmd/register-command! ~activate-cmd
+       (mode/register-mode! (mode/make-minor-mode ~mode-id ~name ~@(flatten (seq (assoc opts :name name)))))
+       (cmd/reg-command ~activate-cmd
                               (fn [project#] (mode/activate-minor-mode! ~mode-id) project#)
                               :description (str "Activate " ~name " minor mode"))
-       (cmd/register-command! ~deactivate-cmd
+       (cmd/reg-command ~deactivate-cmd
                               (fn [project#] (mode/deactivate-minor-mode! ~mode-id) project#)
                               :description (str "Deactivate " ~name " minor mode"))
-       (cmd/register-command! ~toggle-cmd
+       (cmd/reg-command ~toggle-cmd
                               (fn [project#] (mode/toggle-minor-mode! ~mode-id) project#)
                               :description (str "Toggle " ~name " minor mode")))))
 
@@ -259,3 +260,4 @@
                            (fn [project id]
                              (delete-by-id! table-id id))
                            :description (str "Delete row from " table-id " by primary key"))))
+

@@ -119,7 +119,7 @@
       (is (contains? (:keys combined) :b))
       (is (= :parent-cmd (km/lookup-key combined :a)))
       (is (= :child-cmd (km/lookup-key combined :b))))
-    (mode/deactivate-mode! child-spec f)))
+    (mode/deactivate-major-mode! child-spec f)))
 
 ;; ══════════════════════════════════════════════════════════
 ;; 2.6 fundamental 模式
@@ -143,4 +143,4 @@
       (hook/add-hook! my-hook #(reset! called true))
       (mode/activate-major-mode! :test.my-mode f)
       (is @called))
-    (mode/deactivate-mode! spec f)))
+    (mode/deactivate-major-mode! spec f)))

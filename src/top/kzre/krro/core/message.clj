@@ -10,7 +10,7 @@
   [n]
   (alter-var-root #'max-messages (constantly n)))
 
-(defn- add [content type]
+(defn push-message [type content]
   (let [entry {:content content :type type}]
     (swap! messages
            (fn [buf]
@@ -19,7 +19,7 @@
                  (subvec new-buf (- (count new-buf) max-messages))
                  new-buf))))))
 
-(defn message [content] (add content :info))
-(defn warn    [content] (add content :warn))
-(defn error   [content] (add content :error))
+(defmacro message [content] `(push-message :info ~content))
+(defmacro warn    [content] `(push-message :warn ~content))
+(defmacro error   [content] `(push-message :error ~content))
 

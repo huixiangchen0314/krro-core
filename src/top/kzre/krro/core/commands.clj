@@ -6,7 +6,9 @@
             [top.kzre.krro.core.custom :as custom]
             [top.kzre.krro.core.mode :as mode]
             [top.kzre.krro.core.plugin :as plugin]
-            [top.kzre.krro.core.window :as win]))
+            [top.kzre.krro.core.window :as win]
+            [top.kzre.krro.core.frame :as frame]
+            [top.kzre.krro.core.keymap :as km]))
 
 (defn- inspect
   "输出当前 Krrō 系统状态。"
@@ -56,18 +58,30 @@
 
 ;; ── 注册命令 ──────────────────────────────────────────
 
-(cmd/register-command! :krro.core/inspect inspect
+(cmd/reg-command :krro.core/inspect inspect
                        :description "Print current system state"
                        :interactive true)
 
-(cmd/register-command! :krro.core/describe-mode describe-mode
+(cmd/reg-command :krro.core/describe-mode describe-mode
                        :description "Describe the current major mode"
                        :interactive true)
 
-(cmd/register-command! :krro.core/apropos apropos
+(cmd/reg-command :krro.core/apropos apropos
                        :description "Search registered commands by name"
                        :interactive [:string])
 
-(cmd/register-command! :krro.core/split-frame-horizontal split-frame-horizontal!
+(cmd/reg-command :krro.core/split-frame-horizontal split-frame-horizontal!
                        :description "Split current window as horizontal"
                        :interactive true)
+
+(cmd/reg-command :krro.core/delete-frame
+                 (fn [_]
+                   (let [f (win/active-frame)
+                         w (frame/window f)]
+                     (win/delete-frame! w (frame/frame-id f))))
+                 :description "delete current frame"
+                 :interactive true)
+
+
+(km/set-global-key!
+  :C-0  :krro.core/delete-frame)

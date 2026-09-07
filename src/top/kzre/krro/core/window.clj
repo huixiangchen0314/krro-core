@@ -11,32 +11,32 @@
  (native-set-bounds! [this bounds])
  (native-bounds [this] "返回 {:x :y :width :height}")
  (native-visible? [this])
-  (native-focused? [this] "返回窗口是否拥有输入焦点")
-  (native-object [this] "返回平台窗口对象，如 JavaFX Stage"))
+ (native-focused? [this] "返回窗口是否拥有输入焦点")
+ (native-object [this] "返回平台窗口对象，如 JavaFX Stage"))
 
 ;; ── 窗口协议 ──────────────────────────────────────
 (defprotocol IWindow
  "顶层系统窗口抽象。
   管理一组平级的 Frame，通过布局树描述它们的视觉分割。
   所有 Frame 的创建与销毁都通过分割操作完成。"
-
  (window-id [this] "返回 Window 的唯一标识。")
  (current-frame [this] "返回当前拥有焦点的 Frame。")
  (set-current-frame! [this frame] "设置当前 Frame 为焦点。")
+ (layout-desc [this]
+  "返回布局描述向量树
+ 叶子节点：[frame-id-id]
+ 分割节点：[direction props-map child1 child2 ...]")
  (split-frame! [this direction opts]
   "在指定 Frame 的视觉邻接方向上创建一个新的平级 Frame，并更新布局树。
    direction 为 :vertical 或 :horizontal。
    opts 可选 :ratio（原 Frame 所占比例，默认 0.5）。
    返回新创建的 Frame。新 Frame 初始模式为 :krro.mode/fundamental。")
- (delete-frame! [this frame]
+ (delete-frame! [this frame-id]
   "删除指定 Frame，并从布局树中移除。
    若删除后 Window 中无 Frame，则关闭 Window。
    删除后焦点自动移至相邻 Frame。")
- (other-frame! [this] "按布局遍历顺序将焦点切换到下一个 Frame。")
- (frame-at [this direction]
-  "从当前 Frame 出发，返回 direction（:up/:down/:left/:right）方向上的相邻 Frame，
-   若不存在则返回 nil。")
  (frames [this] "返回该 Window 中所有平级 Frame 的集合。")
+ (get-frame [this frame-id])
  (window-title [this] "返回窗口标题。")
  (set-window-title! [this title] "设置窗口标题。")
  (window-bounds [this] "返回窗口位置和大小，map 形式 {:x :y :width :height}。")
@@ -46,10 +46,7 @@
  (hide-window! [this] "隐藏窗口。")
  (close-window! [this] "关闭窗口，释放资源并从全局注册表中移除。")
  (native-window [this] "返回原生窗口协议")
- (layout-desc [this]
-  "返回布局描述向量树
- 叶子节点：[frame-id]
- 分割节点：[direction props-map child1 child2 ...]"))
+ )
 
 ;; ── 全局注册表 ────────────────────────────────────
 (defonce ^:private window-registry (atom {}))

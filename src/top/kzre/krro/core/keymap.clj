@@ -7,15 +7,13 @@
    [top.kzre.krro.core.command :as cmd]
    [top.kzre.krro.core.hook :as hook]
    [top.kzre.krro.core.message :as msg]
+   [top.kzre.krro.core.util :as util]
    [top.kzre.krro.core.variable :refer [*debug*]]))
 
 ;; ── 全局键图 ────────────────────────────────
 (defonce global-keymap (atom {}))
 
-(defn set-global-key!
-  "设置全局键绑定，key-vec 为关键字向量，如 [:C-x :u] 或 [:u]。"
-  [key-vec command-id]
-  (swap! global-keymap assoc-in key-vec command-id))
+
 
 ;; ── 键图构造 ────────────────────────────────
 (defn keymap*
@@ -58,6 +56,16 @@
      => {:u :undo, :C-x {:u :save}}"
   [bindings]
   (keymap* bindings))
+
+(defn set-global-key!
+  "设置全局键绑定。参数为键值对：键（关键字或键序列向量）与命令关键字交替。
+   示例：
+     (set-global-key! [:C-x :u] :undo)      ; 绑定 C-x u → undo
+     (set-global-key! :u :undo)             ; 绑定 u → undo
+     (set-global-key! [:C-x] :prefix :u :undo) ; 同时绑定多个"
+  [& {:as key-bindings}]
+  (let [nested (keymap* key-bindings)]      ; 转为嵌套键图
+    (swap! global-keymap util/merge-deep nested)))
 
 ;; ── 键序列前缀栈 ───────────────────────────
 (defonce prefix-stack (atom []))

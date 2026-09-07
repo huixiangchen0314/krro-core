@@ -7,7 +7,7 @@
 (defprotocol IFrame
   (frame-id [this] "返回 Frame 的唯一标识")
   (major-mode [this] "返回当前主模式 ID")
-  (minor-modes [this] "返回当前激活的副模式集合")
+  (minor-modes [this] "返回当前激活的副模式id集合")
   (set-major-mode! [this mode-id] "设置主模式")
   (add-minor-mode! [this mode-id] "激活副模式")
   (remove-minor-mode! [this mode-id] "停用副模式")
@@ -22,6 +22,7 @@
   (remove-local-custom! [this id] "移除一个局部 custom 值")
   (window [this] "返回 frame 所在的窗口协议"))
 
+;; TODO 移出到 frame-ipl
 (defrecord Frame [id major-mode-atom minor-modes-atom params-atom local-customs-atom window]
   IFrame
   (frame-id [_] id)

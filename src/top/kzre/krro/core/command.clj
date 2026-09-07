@@ -21,7 +21,7 @@
           :description description
           :interactive interactive}))
 
-(def register-command! reg-command)
+(def ^:deprecated register-command! reg-command)
 
 
 

@@ -94,7 +94,7 @@
     (is (= 10 @my-test-var))
     (is @enter-called)
     (is (not @exit-called))
-    (mode/deactivate-mode! spec f)
+    (mode/deactivate-major-mode! spec f)
     ;; fundamental 模式激活后，栈中只有 fundamental 键图（深度 1）
     (is (= 1 (count (frame/keymaps f))))
     (is (= 0 @my-test-var))
@@ -155,7 +155,7 @@
     (mode/activate-major-mode! :child.mode f)
     (is (= 100 @var-a))
     (is (= 200 @var-b))
-    (mode/deactivate-mode! child-spec f)
+    (mode/deactivate-major-mode! child-spec f)
     (is (= 0 @var-a))
     (is (= 0 @var-b))))
 
