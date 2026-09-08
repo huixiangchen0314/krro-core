@@ -6,15 +6,15 @@
    [top.kzre.krro.core.custom :as custom]
    [top.kzre.krro.core.frame :as frame]
    [top.kzre.krro.core.hook]
-   [top.kzre.krro.core.keymap]
+   [top.kzre.krro.core.keymap :as km]
    [top.kzre.krro.core.message]
    [top.kzre.krro.core.mode :as mode]
-   [top.kzre.krro.core.plugin]
+   [top.kzre.krro.core.plugin :as plugin]
    [top.kzre.krro.core.plugins]
    [top.kzre.krro.core.project :as proj]
    [top.kzre.krro.core.rdb :as rdb]
    [top.kzre.krro.core.reframe]
-   [top.kzre.krro.core.resource]
+   [top.kzre.krro.core.resource :as res]
    [top.kzre.krro.core.resources]
    [top.kzre.krro.core.ui.protocol :as ui]
    [top.kzre.krro.core.util.naming :as naming]
@@ -33,12 +33,15 @@
 (def set-renderer! ui/set-renderer!)
 (def render-layout! ui/render-frame!)
 
-(defonce ^:private initialized? (atom false))
+(defonce  ^:deprecated ^:private initialized? (atom false))
 
 (def create-window! window-impl/create-window!)
-(def active-frame win/active-frame)
-(def active-window win/active-window)
-(def all-windows win/all-windows)
+(def  active-frame win/active-frame)
+(def  active-window win/active-window)
+(def  all-windows win/all-windows)
+(def all-frames win/all-frames)
+(def frames-with-param win/frames-with-param)
+(def ensure-param! frame/ensure-param!)
 (def split-frame-horizontal! win/split-frame-horizontal!)
 ;; custom
 (def defcustom custom/defcustom)
@@ -51,44 +54,60 @@
 (def reset-custom! custom/reset-custom!)
 (def all-customs custom/all-customs)
 (def custom-group custom/custom-group)
+(def exe-command! cmd/exe-command!)
+(def reg-command cmd/reg-command)
 
-
+(def reg-resource res/reg-resource)
 ;; frame
-(def current-frame frame/*current-frame*)
-(def create-frame! frame/create-frame!)
-(def destroy-frame! frame/destroy-frame!)
-(def all-frames frame/all-frames)
-(def frame-id frame/frame-id)
-(def major-mode frame/major-mode)
-(def minor-modes frame/minor-modes)
+(def current-frame (win/active-frame))
+(def ^:deprecated create-frame! frame/make-frame)
 
-;; mode
-(def activate-major-mode! mode/activate-major-mode!)
-(def activate-minor-mode! mode/activate-minor-mode!)
-(def deactivate-minor-mode! mode/deactivate-minor-mode!)
-(def toggle-minor-mode! mode/toggle-minor-mode!)
-(def deactivate-mode! mode/deactivate-major-mode!)
+(def get-plugin plugin/get-plugin)
+(def reg-plugin plugin/reg-plugin)
+(def reg-plugin! plugin/reg-plugin!)
+(def unreg-plugin plugin/unreg-plugin)
+(def enable-plugin! plugin/enable-plugin!)
+(def disable-plugin! plugin/disable-plugin!)
+(def all-plugins plugin/all-plugins)
+(def all-enabled-plugins plugin/all-enabled-plugins)
+(def plugin-enable? plugin/plugin-enabled?)
+(def plugin-unmountable? plugin/plugin-unmountable?)
+
+;; TODO 直接操作协议
+(def ^:deprecated frame-id frame/frame-id)
+(def ^:deprecated major-mode frame/major-mode)
+(def ^:deprecated minor-modes frame/minor-modes)
+
+;; mode TODO 优先使用 define-xxx-mode 和生成的特定命令
+(def  ^:deprecated activate-major-mode! mode/activate-major-mode!)
+(def  ^:deprecated activate-minor-mode! mode/activate-minor-mode!)
+(def  ^:deprecated deactivate-minor-mode! mode/deactivate-minor-mode!)
+(def  ^:deprecated toggle-minor-mode! mode/toggle-minor-mode!)
+(def  ^:deprecated deactivate-mode! mode/deactivate-major-mode!)
 (def fundamental-activate! mode/fundamental-activate!)
-(def make-major-mode mode/make-major-mode)
-(def make-minor-mode mode/make-minor-mode)
-(def register-mode! mode/register-mode!)
+(def  ^:deprecated make-major-mode mode/make-major-mode)
+(def  ^:deprecated make-minor-mode mode/make-minor-mode)
+(def ^:deprecated register-mode! mode/register-mode!)
+(def reg-mode mode/reg-mode)
 (def get-mode-spec mode/get-mode-spec)
 (def define-major-mode mode/define-major-mode)
 (def define-minor-mode mode/define-minor-mode)
 
-(defn init!
+(def set-global-key! km/set-global-key!)
+
+(defn ^:deprecated init!
   "初始化 Krrō 核心系统。创建默认 Frame 并设置为当前活动 Frame。
    此函数可多次调用但只会执行一次。"
   []
   (when (compare-and-set! initialized? false true)
     (proj/init-project!)
-    (let [f (frame/create-frame! :id :default)]
+    (let [f (frame/make-frame :id :default)]
       (alter-var-root #'frame/*current-frame* (constantly f))
       (mode/fundamental-activate! f)
       (println "Krrō core initialized."))))
 
 ;; ── 便捷启动宏 ──────────────────────────────────────
-(defmacro with-core [& body]
+(defmacro  ^:deprecated with-core [& body]
   `(do
      (init!)
      ~@body))

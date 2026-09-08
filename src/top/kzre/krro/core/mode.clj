@@ -41,7 +41,13 @@
           variables  (assoc :variables variables)
           after-hook (assoc :after-hook after-hook)))
 
-(defn register-mode! [spec] (swap! mode-registry assoc (:id spec) spec))
+(defn reg-mode
+  [spec]
+  {:pre [(not (nil? (:id spec)))]}
+  (swap! mode-registry assoc (:id spec) spec))
+
+(def ^:deprecated register-mode! reg-mode)
+
 (defn get-mode-spec [id] (get @mode-registry id))
 
 
@@ -199,12 +205,12 @@
   [mode-id & {:keys [name] :as opts}]
   (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode!")
         deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "deactivate-mode!")]
-    (register-mode! (apply make-major-mode mode-id (flatten (seq opts))))
+    (reg-mode (apply make-major-mode mode-id (flatten (seq opts))))
     (cmd/reg-command activate-cmd
-                           (fn [project] (activate-major-mode! mode-id) project)
+                           (fn [project & [f]] (activate-major-mode! mode-id (or f (win/active-frame))) project)
                            :description (str "Activate " name " mode"))
     (cmd/reg-command deactivate-cmd
-                           (fn [project] (deactivate-major-mode! mode-id) project)
+                           (fn [project & [f]] (deactivate-major-mode! mode-id (or f (win/active-frame))) project)
                            :description (str "Deactivate " name " mode"))))
 
 
@@ -218,13 +224,13 @@
   (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode!")
         deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "-mode!")
         toggle-cmd     (naming/naming-keyword-around mode-id "toggle-" "-mode!")]
-    (register-mode! (apply make-minor-mode mode-id (flatten (seq opts))))
+    (reg-mode (apply make-minor-mode mode-id (flatten (seq opts))))
     (cmd/reg-command activate-cmd
-                           (fn [project] (activate-minor-mode! mode-id) project)
+                           (fn [project & [f]] (activate-minor-mode! mode-id (or f (win/active-frame))) project)
                            :description (str "Activate " name " minor mode"))
     (cmd/reg-command deactivate-cmd
-                           (fn [project] (deactivate-minor-mode! mode-id) project)
+                           (fn [project & [f]] (deactivate-minor-mode! mode-id (or f (win/active-frame))) project)
                            :description (str "Deactivate " name " minor mode"))
     (cmd/reg-command toggle-cmd
-                           (fn [project] (toggle-minor-mode! mode-id) project)
+                           (fn [project & [f]] (toggle-minor-mode! mode-id (or f (win/active-frame))) project)
                            :description (str "Toggle " name " minor mode"))))

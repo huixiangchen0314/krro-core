@@ -5,40 +5,96 @@
 
 (defonce plugin-registry (atom {}))
 
-(defmulti apply-plugin!
-          "根据插件的 :type 进行类型特定的初始化。默认调用 :init 函数。"
+(defmulti mount-plugin!
+          "根据插件的 :type 进行类型特定的挂载插件。默认调用 :init 函数。"
           (fn [plugin] (:type plugin)))
 
-(defmethod apply-plugin! :default [plugin]
+(defmulti unmount-plugin!
+          "根据插件的 :type 进行类型特定的挂载插件。默认调用 :init 函数。"
+          (fn [plugin] (:type plugin)))
+
+(defmethod mount-plugin! :default [plugin]
   (try
-    (when-let [init-fn (:init plugin)]
-      (init-fn))
+    (when-let [mount-fn (or (:mount plugin) (:init plugin))]
+      (mount-fn))
     (catch Exception e
       (msg/error (str "Failed to initialize plugin: " (:id plugin) " - " (.getMessage e))))))
 
-(defn register-plugin!
+(defmethod unmount-plugin! :default [plugin]
+  (try
+    (when-let [unmount-fn (:unmount plugin)]
+      (unmount-fn))
+    (catch Exception e
+      (msg/error (str "Failed to initialize plugin: " (:id plugin) " - " (.getMessage e))))))
+
+
+(defn get-plugin [plugin-id]
+  (get @plugin-registry plugin-id))
+
+(defn enable-plugin! [plugin-id]
+  (if-let [plug (get-plugin plugin-id)]
+    (do (mount-plugin! plug)
+        (swap! plugin-registry assoc-in [plugin-id :enabled] true))
+    (msg/warn (str "unknown plugin: " plugin-id))))
+
+(defn disable-plugin! [plugin-id]
+  (if-let [plug (get-plugin plugin-id)]
+    (do (unmount-plugin! plug)
+        (swap! plugin-registry assoc-in [plugin-id :enabled] false))
+    (msg/warn (str "unknown plugin: " plugin-id))))
+
+
+(defn reg-plugin
   "注册一个插件：先执行 apply-plugin! 进行类型初始化，再以 :id 为键存入全局 map。
    若注册过程出现严重异常则返回 nil。"
   [plugin]
   (try
-    (apply-plugin! plugin)
+    (when-let [pid (:id plugin)]
+      (swap! plugin-registry assoc pid plugin)
+      (:id plugin))
+    (catch Exception e
+      (msg/error (str "Failed to register plugin: " (:id plugin) " - " (.getMessage e))))))
+
+(defn reg-plugin!
+  "注册插件并立即应用."
+  [plugin]
+  (try
+    (mount-plugin! plugin)
     (swap! plugin-registry assoc (:id plugin) plugin)
     (:id plugin)
     (catch Exception e
       (msg/error (str "Failed to register plugin: " (:id plugin) " - " (.getMessage e))))))
 
-(defn unregister-plugin
+(defn plugin-enabled? [plugin-id]
+  (when-let [p (get-plugin plugin-id)]
+    (:enabled p)))
+
+(defn plugin-unmountable?
+  "插件是否可卸载"
+  [plugin-id]
+  (when-let [p (get-plugin plugin-id)]
+    (fn? (nil? (:unmount p)))))
+
+(defn unreg-plugin
   "从 map 中移除指定 :id 的插件。"
   [plugin-id]
+  (when (plugin-enabled? plugin-id)
+    (disable-plugin! plugin-id))
   (swap! plugin-registry dissoc plugin-id))
 
-(defn registered-plugins []
+(def unregister-plugin unreg-plugin)
+(def ^:deprecated register-plugin! reg-plugin!)
+
+(defn all-plugins []
   (vals @plugin-registry))
+
+(defn all-enabled-plugins []
+  (filter #(plugin-enabled? (:id %)) (all-plugins)))
 
 (defn define-plugin*
   "高阶函数：注册插件类型行为。handler 接收插件 map。"
   [type handler]
-  (defmethod apply-plugin! type [p]
+  (defmethod mount-plugin! type [p]
     (try
       (handler p)
       (catch Exception e

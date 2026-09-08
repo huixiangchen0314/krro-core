@@ -2,8 +2,6 @@
   "Frame 抽象：每个 Frame 代表一个独立的工作空间，持有模式、键图栈。
    所有状态通过 IFrame 协议封装，不暴露内部原子。")
 
-(defonce frame-registry (atom {}))   ;; {frame-id Frame}
-
 (defprotocol IFrame
   (frame-id [this] "返回 Frame 的唯一标识")
   (major-mode [this] "返回当前主模式 ID")
@@ -22,7 +20,7 @@
   (remove-local-custom! [this id] "移除一个局部 custom 值")
   (window [this] "返回 frame 所在的窗口协议"))
 
-;; TODO 移出到 frame-ipl
+;; TODO 移出到 frame-impl
 (defrecord Frame [id major-mode-atom minor-modes-atom params-atom local-customs-atom window]
   IFrame
   (frame-id [_] id)
@@ -42,14 +40,6 @@
   (remove-local-custom! [_ vid] (swap! local-customs-atom dissoc vid))
   (window [_] window))
 
-
-(def ^:dynamic *current-frame* nil)
-
-(defmacro with-frame [f & body]
-  `(binding [*current-frame* ~f]
-     ~@body))
-
-
 (defn ensure-param!
   "获取 frame 参数 key 的值。若不存在，则原子地调用 init 生成默认值并设置。
    init 仅会在首次缺失时执行一次（通过 locking 保证）。
@@ -64,16 +54,11 @@
             (swap! pa assoc key new-val)
             new-val))))))
 
-(defn all-frames []
-  (vals @frame-registry))
 
-(defn frames-with-param
-  "返回所有参数中指定 key 的值等于 val 的 Frame 列表。"
-  [key val]
-  (filter #(= (param % key) val) (all-frames)))
+(defonce ^:deprecated frame-registry (atom {}))   ;; {frame-id Frame}
 
 
-(defn create-frame!
+(defn make-frame
   "创建一个新的 Frame，自动注册到全局表。
    win 为 Frame 所在的 Window（可为 nil，表示无窗口）。
    可选关键字参数 :id 指定 Frame 的唯一 ID，默认自动生成。"
@@ -88,7 +73,26 @@
     (swap! frame-registry assoc id f)
     f))
 
-(defn destroy-frame!
+
+(def  ^:deprecated ^:dynamic *current-frame* nil)
+
+(defmacro  ^:deprecated with-frame [f & body]
+  `(binding [*current-frame* ~f]
+     ~@body))
+
+
+(defn ^:deprecated all-frames []
+  (vals @frame-registry))
+
+(defn ^:deprecated frames-with-param
+  "返回所有参数中指定 key 的值等于 val 的 Frame 列表。"
+  [key val]
+  (filter #(= (param % key) val) (all-frames)))
+
+
+
+
+(defn ^:deprecated destroy-frame!
   "从全局表中移除 Frame，释放资源。"
   [id]
   (swap! frame-registry dissoc id))

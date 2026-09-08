@@ -363,7 +363,8 @@
    事件进入对应 app-id 和 record-id 的通道，处理器按 app-id 隔离。"
   [app-id event-v]
   (let [record-id (second event-v)
-        store     (get-in @stores [app-id record-id])]
+        ss @stores
+        store     (get-in ss [app-id record-id])]
     (when-not store
       (throw (ex-info (str "Store not registered for " app-id "/" record-id)
                       {:app-id app-id :record-id record-id})))

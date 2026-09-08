@@ -1,8 +1,9 @@
 (ns top.kzre.krro.core.window-layout
   (:require [clojure.spec.alpha :as s]))
 
+(defonce directions #{:horizontal :vertical})
 (s/def ::frame-id keyword?)
-(s/def ::direction #{:horizontal :vertical})
+(s/def ::direction directions)
 
 (s/def ::ratio (s/and number? #(> % 0)))
 (s/def ::ratios (s/coll-of ::ratio :kind vector? :min-count 1))
@@ -40,7 +41,9 @@
 
 (defn leaf? [node]
   (and (vector? node)
-       (keyword? (first node)) ))
+       (let [kw (first node)]
+         (and (keyword? kw)
+              (not (contains? directions kw)))) ))
 
 (defn split? [node]
   (and (vector? node) (contains? #{:horizontal :vertical} (first node))))

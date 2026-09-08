@@ -24,18 +24,17 @@
 (def ^:deprecated register-command! reg-command)
 
 
-
 (defn lookup-command [id]
   (get @command-registry id))
 
-(defn interactive-commands
+(defn all-interactive-commands
   "获取所有可执行命令"
   []
   (into {}
         (filter (fn [[_ v]] (some? (:interactive v))))
         @command-registry))
 
-(defn execute-command!
+(defn exe-command!
   ([id]
    (if @variable/command-enabled
      (if-let [cmd (lookup-command id)]
@@ -48,7 +47,7 @@
              (let [args (i/read-args interactor spec)]
                (if (some nil? args)
                  nil
-                 (apply execute-command! id args)))
+                 (apply exe-command! id args)))
              (msg/error (str "Command " id " requires interactive args, but no interactor installed")))
            (try
              (handler @proj/project)
@@ -77,7 +76,9 @@
        (msg/warn (str "Command execution disabled, cannot execute " id " with args " args))
        nil))))
 
-(defmacro defcommand
+(def ^:deprecated execute-command! exe-command!)
+
+(defmacro ^:deprecated defcommand
   "定义命令并注册。语法：
    (defcommand name [project & args] :description \"doc\" :interactive [:string] body...)
    关键字选项 :description, :interactive 可放在参数向量之后任意位置。"

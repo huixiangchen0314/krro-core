@@ -26,7 +26,7 @@
     (if-let [focus-frame (win/current-frame this)]
       (let [ratio (or ratio 0.5)
             reversed? (or reversed? false)
-            new-frame (frame/create-frame! this)
+            new-frame (frame/make-frame this)
             current-frame-id (frame/frame-id focus-frame)
             new-frame-id (frame/frame-id new-frame)]
         (mode/fundamental-activate! new-frame)
@@ -49,7 +49,7 @@
           (win/close-window! this)                     ;; 无 Frame 剩余，关闭窗口
           (do
             (reset! layout-atom new-layout)
-            (swap! frames-atom dissoc frame-id)
+            (frame/destroy-frame! frame-id)
             (when-let [next-id (first (window-layout/all-frames new-layout))]
               (win/set-current-frame! this (get @frames-atom next-id))))))))
 
@@ -77,7 +77,7 @@
   (let [;; 创建窗口对象，并立即赋予三个原子（初始为空）
         win (->Window id (atom {}) (atom []) (atom nil) native)
         ;; 在窗口对象完全就绪后，创建初始 Frame
-        initial-frame (frame/create-frame! win :id :initial)
+        initial-frame (frame/make-frame win)
         fid (frame/frame-id initial-frame)]
     ;; 将初始 Frame 注册到窗口的集合和布局树中
     (swap! (:frames-atom win) assoc fid initial-frame)

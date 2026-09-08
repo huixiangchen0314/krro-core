@@ -23,6 +23,32 @@
 (defonce codec-registry (atom {}))
 (defonce class-codec-map (atom {}))   ;; Class → type-kw 快速索引
 
+(defn reg-resource
+  "注册一个编解码器对。type-kw 为 :krro/type 的值。
+   pred:   可以是函数 (fn [obj] -> boolean?) 或 Class（自动转为 instance? 检查）
+   encoder: (fn [obj ctx] -> proxy-map)
+   decoder: (fn [proxy-map] -> obj)"
+  [type-kw pred encoder decoder]
+  {:pre [(keyword? type-kw)
+         (or (ifn? pred) (class? pred))   ;; 允许 Class 类型
+         (ifn? encoder)
+         (ifn? decoder)]}
+  (let [;; 若 pred 是 Class，生成等效的 instance? 函数
+        pred-fn (if (class? pred)
+                  (fn [obj] (instance? pred obj))
+                  pred)
+        ;; 自动包装旧式单参数编码器
+        wrap-encoder (fn [f]
+                       (if (and f (= (count (first (:arglists (meta f)))) 1))
+                         (fn [obj _ctx] (f obj))
+                         f))]
+    (swap! codec-registry assoc type-kw {:encoder (wrap-encoder encoder)
+                                         :decoder decoder
+                                         :pred pred-fn})
+    ;; 若 pred 是 Class，则建立 Class → type-kw 的快速索引
+    (when (class? pred)
+      (swap! class-codec-map assoc pred type-kw))))
+
 (defn register-codec!
   "注册一个编解码器对。type-kw 为 :krro/type 的值。
    pred:   可以是函数 (fn [obj] -> boolean?) 或 Class（自动转为 instance? 检查）

@@ -22,13 +22,13 @@
            :init (fn [] (reset! called true))}]
     (is (= :p1 (plugin/register-plugin! p)))
     (is @called)
-    (is (some #(= (:name %) :p1) (plugin/registered-plugins)))))
+    (is (some #(= (:name %) :p1) (plugin/all-plugins)))))
 
 (deftest test-register-plugin-without-type
   (let [p {:name :p2
            :init (fn [] nil)}]
     (is (= :p2 (plugin/register-plugin! p)))
-    (is (some #(= (:name %) :p2) (plugin/registered-plugins)))))
+    (is (some #(= (:name %) :p2) (plugin/all-plugins)))))
 
 (deftest test-unregister-plugin
   (let [p1 {:name :p3
@@ -37,12 +37,12 @@
             :type :test}]
     (plugin/register-plugin! p1)
     (plugin/register-plugin! p2)
-    (is (= 2 (count (filter #(= (:name %) :p3) (plugin/registered-plugins)))))
+    (is (= 2 (count (filter #(= (:name %) :p3) (plugin/all-plugins)))))
     (plugin/unregister-plugin :p3)
-    (is (empty? (filter #(= (:name %) :p3) (plugin/registered-plugins))))))
+    (is (empty? (filter #(= (:name %) :p3) (plugin/all-plugins))))))
 
 (deftest test-registered-plugins-empty
-  (is (empty? (plugin/registered-plugins))))
+  (is (empty? (plugin/all-plugins))))
 
 (deftest test-multiple-plugins
   (let [p1 {:name :a
@@ -51,9 +51,9 @@
             :b :type :test}]
     (plugin/register-plugin! p1)
     (plugin/register-plugin! p2)
-    (is (= 2 (count (plugin/registered-plugins))))
-    (is (some #(= (:name %) :a) (plugin/registered-plugins)))
-    (is (some #(= (:name %) :b) (plugin/registered-plugins)))))
+    (is (= 2 (count (plugin/all-plugins))))
+    (is (some #(= (:name %) :a) (plugin/all-plugins)))
+    (is (some #(= (:name %) :b) (plugin/all-plugins)))))
 
 (deftest test-define-plugin-macro
   (reset! captured-calls [])
