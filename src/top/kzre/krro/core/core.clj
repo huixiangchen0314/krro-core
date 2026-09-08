@@ -17,9 +17,11 @@
    [top.kzre.krro.core.resource :as res]
    [top.kzre.krro.core.resources]
    [top.kzre.krro.core.ui.protocol :as ui]
+   [top.kzre.krro.core.use-plugin :as use-plugin]
    [top.kzre.krro.core.util.naming :as naming]
    [top.kzre.krro.core.window :as win]
-   [top.kzre.krro.core.window-impl :as window-impl]))
+   [top.kzre.krro.core.window-impl :as window-impl]
+   [top.kzre.krro.core.util :as util]))
 
 (defn rerender!
   "重新渲染当前 Frame 的布局。可从模式中重新获取 layout 并触发 UI 更新。"
@@ -72,7 +74,10 @@
 (def all-enabled-plugins plugin/all-enabled-plugins)
 (def plugin-enable? plugin/plugin-enabled?)
 (def plugin-unmountable? plugin/plugin-unmountable?)
-
+(def topo-sort util/topo-sort)
+(def merge-deep util/merge-deep)
+(def defplugin plugin/defplugin)
+(def use-plugin use-plugin/use-plugin)
 ;; TODO 直接操作协议
 (def ^:deprecated frame-id frame/frame-id)
 (def ^:deprecated major-mode frame/major-mode)
