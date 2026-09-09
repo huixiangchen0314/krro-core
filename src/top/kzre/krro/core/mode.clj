@@ -203,8 +203,8 @@
      - mode-id: mode 的唯一标识符（关键字）
      - opts:    额外的键值对选项，会原样传递给 mode/make-major-mode"
   [mode-id & {:keys [name] :as opts}]
-  (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode!")
-        deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "deactivate-mode!")]
+  (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode")
+        deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "deactivate-mode")]
     (reg-mode (apply make-major-mode mode-id (flatten (seq opts))))
     (cmd/reg-command activate-cmd
                            (fn [project & [f]] (activate-major-mode! mode-id (or f (win/active-frame))) project)
@@ -221,9 +221,9 @@
      - name:    mode 的显示名称（字符串）
      - opts:    额外的键值对选项，会原样传递给 mode/make-minor-mode"
   [mode-id  & {:keys [name] :as opts}]
-  (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode!")
-        deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "-mode!")
-        toggle-cmd     (naming/naming-keyword-around mode-id "toggle-" "-mode!")]
+  (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode")
+        deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "-mode")
+        toggle-cmd     (naming/naming-keyword-around mode-id "toggle-" "-mode")]
     (reg-mode (apply make-minor-mode mode-id (flatten (seq opts))))
     (cmd/reg-command activate-cmd
                            (fn [project & [f]] (activate-minor-mode! mode-id (or f (win/active-frame))) project)

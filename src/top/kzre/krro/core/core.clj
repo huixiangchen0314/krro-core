@@ -76,8 +76,9 @@
 (def plugin-unmountable? plugin/plugin-unmountable?)
 (def topo-sort util/topo-sort)
 (def merge-deep util/merge-deep)
-(def defplugin plugin/defplugin)
-(def use-plugin use-plugin/use-plugin)
+
+
+;(def use-plugin use-plugin/use-plugin)
 ;; TODO 直接操作协议
 (def ^:deprecated frame-id frame/frame-id)
 (def ^:deprecated major-mode frame/major-mode)

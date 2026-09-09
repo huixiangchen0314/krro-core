@@ -92,19 +92,60 @@
   (filter #(plugin-enabled? (:id %)) (all-plugins)))
 
 (defn define-plugin*
-  "高阶函数：注册插件类型行为。handler 接收插件 map。"
-  [type handler]
-  (defmethod mount-plugin! type [p]
-    (try
-      (handler p)
-      (catch Exception e
-        (msg/error (str "Plugin handler error for type " type ": " (.getMessage e)))))))
+  "高阶函数：注册插件类型行为。提供 mount-handler 和可选的 unmount-handler。"
+  ([type mount-handler ] (define-plugin* type mount-handler nil))
+  ([type mount-handler unmount-handler]
+   (defmethod mount-plugin! type [p]
+     (try
+       (mount-handler p)
+       (catch Exception e
+         (msg/error (str "Plugin mount-handler error for type " type ": " (.getMessage e))))))
+   (when unmount-handler
+     (defmethod unmount-plugin! type [p]
+       (try
+         (unmount-handler p)
+         (catch Exception e
+           (msg/error (str "Plugin unmount-handler error for type " type ": " (.getMessage e)))))))))
 
 (defmacro defplugin
-  "定义插件类型的行为，自动解包插件属性。"
-  [type bindings & body]
-  (let [keys (mapv (fn [sym] (keyword (name sym))) bindings)]
-    `(define-plugin* ~type
-                     (fn [plugin#]
-                       (let [~bindings (mapv #(get plugin# %) ~keys)]
-                         ~@body)))))
+  "定义插件类型的 mount 和（可选）unmount 行为。
+   支持两种用法：
+   1. 仅 mount：
+      (defplugin :type [arg1 arg2]
+        (println \"Mounting\" arg1 arg2))
+   2. mount + unmount：
+      (defplugin :type
+        (mount [arg1 arg2]
+          (println \"Mounting\" arg1 arg2))
+        (unmount [arg1 arg2]
+          (println \"Unmounting\" arg1 arg2)))"
+  [type & body]
+  (let [body-forms (vec body)
+        ;; 检查第一个元素是否为 (mount [...] ...) 形式
+        first-form (first body-forms)
+        mount-form (when (and (seq? first-form)
+                              (= 'mount (first first-form)))
+                     first-form)
+        unmount-form (when (and (seq? (second body-forms))
+                                (= 'unmount (first (second body-forms))))
+                       (second body-forms))
+        mount-args (when mount-form (second mount-form))
+        mount-body (when mount-form (drop 2 mount-form))
+        unmount-args (when unmount-form (second unmount-form))
+        unmount-body (when unmount-form (drop 2 unmount-form))
+        ;; 处理纯 mount 形式（无 mount 关键字）
+        pure-mount? (not mount-form)
+        pure-args (when pure-mount? (first body-forms))
+        pure-body (when pure-mount? (rest body-forms))
+        ;; 构建 handler 函数
+        make-handler (fn [args body]
+                       `(fn [plugin#]
+                          (let [~args (mapv #(get plugin# %) ~(mapv keyword args))]
+                            ~@body)))]
+    (if pure-mount?
+      ;; 仅 mount
+      `(define-plugin* ~type ~(make-handler pure-args pure-body) nil)
+      ;; mount + unmount
+      `(define-plugin* ~type
+                       ~(make-handler mount-args mount-body)
+                       ~(when unmount-form (make-handler unmount-args unmount-body))))))
