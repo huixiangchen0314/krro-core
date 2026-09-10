@@ -205,7 +205,7 @@
   [mode-id & {:keys [name] :as opts}]
   (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode")
         deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "deactivate-mode")]
-    (reg-mode (apply make-major-mode mode-id (flatten (seq opts))))
+    (reg-mode (apply make-major-mode mode-id  (mapcat identity opts)))
     (cmd/reg-command activate-cmd
                            (fn [project & [f]] (activate-major-mode! mode-id (or f (win/active-frame))) project)
                            :description (str "Activate " name " mode"))
@@ -224,7 +224,7 @@
   (let [activate-cmd   (naming/naming-keyword-around mode-id "activate-" "-mode")
         deactivate-cmd (naming/naming-keyword-around mode-id "deactivate-" "-mode")
         toggle-cmd     (naming/naming-keyword-around mode-id "toggle-" "-mode")]
-    (reg-mode (apply make-minor-mode mode-id (flatten (seq opts))))
+    (reg-mode (apply make-minor-mode mode-id  (mapcat identity opts)))
     (cmd/reg-command activate-cmd
                            (fn [project & [f]] (activate-minor-mode! mode-id (or f (win/active-frame))) project)
                            :description (str "Activate " name " minor mode"))
