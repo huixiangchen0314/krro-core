@@ -17,7 +17,6 @@
    [top.kzre.krro.core.resource :as res]
    [top.kzre.krro.core.resources]
    [top.kzre.krro.core.ui.protocol :as ui]
-   [top.kzre.krro.core.use-plugin :as use-plugin]
    [top.kzre.krro.core.util.naming :as naming]
    [top.kzre.krro.core.window :as win]
    [top.kzre.krro.core.window-impl :as window-impl]
@@ -76,7 +75,7 @@
 (def plugin-unmountable? plugin/plugin-unmountable?)
 (def topo-sort util/topo-sort)
 (def merge-deep util/merge-deep)
-
+(def take-padded util/take-padded)
 
 ;(def use-plugin use-plugin/use-plugin)
 ;; TODO 直接操作协议

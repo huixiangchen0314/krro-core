@@ -1,5 +1,11 @@
 (ns top.kzre.krro.core.util)
 
+(defn take-padded
+  "从 coll 中取前 n 个元素，不足部分用 default-value（默认 nil）补齐。
+   等价于 (take n (concat coll (repeat default-value)))。
+   常用于将旧集合对齐到新集合的长度。"
+  [n coll & [default-value]]
+  (take n (concat coll (repeat default-value))))
 
 (defn merge-deep
   "深度合并多个 map。对于嵌套 map 会递归合并，否则后者的值覆盖前者。

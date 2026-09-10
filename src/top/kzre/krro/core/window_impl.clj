@@ -5,7 +5,8 @@
    [top.kzre.krro.core.mode :as mode]
    [top.kzre.krro.core.ui.protocol :as ui]
    [top.kzre.krro.core.window :as win]
-   [top.kzre.krro.core.window-layout :as window-layout]))
+   [top.kzre.krro.core.window-layout :as window-layout]
+   [top.kzre.krro.core.hook :as hook]))
 
 
 ;; ── Window 实现（委托原生窗口操作给 native） ────
@@ -18,8 +19,12 @@
   (current-frame [_]
     (when-let [fid @current-frame-id-atom]
       (get @frames-atom fid)))
-  (set-current-frame! [_ f]
-    (reset! current-frame-id-atom (frame/frame-id f)))
+  (set-current-frame! [this frame-id]
+    (let [old-frame (win/current-frame this)
+          new-frame (win/get-frame this frame-id)]
+      (when (not= frame-id (frame/frame-id old-frame))
+        (reset! current-frame-id-atom frame-id)
+        (hook/run-hook! :krro.core/current-frame-changed-hook old-frame new-frame))))
 
   (frames [_] (vals @frames-atom))
   (split-frame! [this direction {:keys [ratio reversed?]}]
@@ -36,7 +41,8 @@
               split-node (if reversed?
                            (window-layout/make-split direction new-leaf old-leaf :ratio ratio)
                            (window-layout/make-split direction old-leaf new-leaf :ratio ratio))]
-          (swap! layout-atom window-layout/replace-leaf  current-frame-id split-node))
+          (swap! layout-atom window-layout/replace-leaf  current-frame-id split-node)
+          (win/set-current-frame! this new-frame-id))
         new-frame)
       (msg/error "focus-frame is null")))
 
@@ -51,7 +57,7 @@
             (reset! layout-atom new-layout)
             (frame/destroy-frame! frame-id)
             (when-let [next-id (first (window-layout/all-frames new-layout))]
-              (win/set-current-frame! this (get @frames-atom next-id))))))))
+              (win/set-current-frame! this next-id)))))))
 
 
   ;; 窗口元数据全部委托给 native
