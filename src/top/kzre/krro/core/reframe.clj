@@ -4,9 +4,9 @@
    副作用及订阅按 app-id 隔离；
    每个 record 拥有独立的 store 与反应式追踪。
 
-   底层响应式原语使用 top.kzre.krro.core.signal。"
+   底层响应式原语使用 top.kzre.krro.core.util.signal。"
   (:require [clojure.core.async :as async :refer [go <! >! chan go-loop close!]]
-            [top.kzre.krro.core.signal :as sig]))
+            [top.kzre.krro.core.util.signal :as sig]))
 
 (declare subscribe execute-fx invalidate-record-signal process-event dispatch)
 
