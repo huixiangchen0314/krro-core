@@ -102,7 +102,7 @@
   [^Signal sig]
   (when-not (.-disposed sig)
     (set! (.-disposed sig) true)
-    (doseq [in (.-inputs sig)]
+    (doseq [^Signal in (.-inputs sig)]
       (swap! (.-dependents in) disj sig))
     (reset! (.-watches sig) {})))
 
