@@ -5,4 +5,4 @@
 (def ^:dynamic *debug* true)
 
 ;; 全局命令禁用
-(defonce command-enabled (hb/heartbeat-flag true))
+(defonce command-disabled (hb/heartbeat-flag))

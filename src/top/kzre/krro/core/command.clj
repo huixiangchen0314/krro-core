@@ -36,7 +36,7 @@
 
 (defn exe-command!
   ([id]
-   (if @variable/command-enabled
+   (if-not @variable/command-disabled
      (if-let [cmd (lookup-command id)]
        (let [handler (:handler cmd)
              spec    (when-let [i (:interactive cmd)]
@@ -61,7 +61,7 @@
        (msg/warn (str "Command execution disabled, cannot execute " id))
        nil)))
   ([id & args]
-   (if @variable/command-enabled
+   (if-not @variable/command-disabled
      (if-let [cmd (lookup-command id)]
        (let [handler (:handler cmd)]
          (try
