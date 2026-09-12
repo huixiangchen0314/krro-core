@@ -261,14 +261,68 @@
   "等所有 Promise 完成，返回值的向量。
    任一失败 → 结果 Promise 失败（快速失败）。"
   [promises]
-  (let [futs (into-array CompletableFuture
-                         (map #(:future ^Promise %) promises))]
+  (let [ps   (vec promises)                                  ; ← 固化，避免二次向量转化
+        futs (into-array CompletableFuture
+                         (map #(:future ^Promise %) ps))]
     (->promise
       (-> (CompletableFuture/allOf futs)
           (.thenApply
             (reify Function
               (apply [_ _]
-                (mapv (fn [^Promise p] (.join (:future p))) promises))))))))
+                (mapv (fn [^Promise p] (.join (:future p))) ps))))))))
+
+(defn- unwrap-cause
+  "把 CompletionException 解包成原始异常。"
+  ^Throwable [e]
+  (if (and (instance? CompletionException e)
+           (.getCause ^Throwable e))
+    (.getCause ^Throwable e)
+    e))
+
+(defn all-delay-error
+  "等所有 Promise 完成（成功或失败），返回值的向量（与输入同序）。
+
+   任一失败 → 等全部完成后，统一抛出 ex-info：
+     - ex-message : \"all-delay-error: N/M failed\"
+     - ex-data    : {:errors [e1 e2 ...]   ; 失败异常，按输入顺序
+                     :count  N
+                     :total  M}
+     - 第一个异常作为 cause，其余挂在 .suppressed 上（便于 Java 互操作）
+
+   与 all 的区别：all 快速失败（第一个失败立即 reject），
+   all-delay-error 不快速失败，保证所有节点都跑完再抛。
+   不取消任何子任务。"
+  [promises]
+  (let [ps (vec promises)
+        ;; 每个 future 包成永不失败：值形如 [::ok v] / [::err e]
+        settled
+        (mapv (fn [^Promise p]
+                (.handle (:future p)
+                         (reify BiFunction
+                           (apply [_ v e]
+                             (if e
+                               [::err (unwrap-cause e)]
+                               [::ok v])))))
+              ps)
+        futs (into-array CompletableFuture settled)]
+    (->promise
+      (-> (CompletableFuture/allOf futs)
+          (.thenApply
+            (reify Function
+              (apply [_ _]
+                (let [results (mapv #(.join ^CompletableFuture %) settled)
+                      errs    (into [] (keep (fn [[k v]] (when (= k ::err) v))) results)]
+                  (if (seq errs)
+                    (let [ex (ex-info (str "all-delay-error: "
+                                           (count errs) "/" (count ps) " failed")
+                                      {:errors errs
+                                       :count  (count errs)
+                                       :total  (count ps)})]
+                      ;; 第一个当 cause，其余挂 suppressed
+                      (doseq [e (rest errs)]
+                        (.addSuppressed ex e))
+                      (throw ex))
+                    (mapv second results))))))))))
 
 (defn any
   [promises]

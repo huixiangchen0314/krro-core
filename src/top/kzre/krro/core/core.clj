@@ -6,6 +6,7 @@
    [top.kzre.krro.core.custom :as custom]
    [top.kzre.krro.core.frame :as frame]
    [top.kzre.krro.core.hook]
+   [top.kzre.krro.core.util.promise]
    [top.kzre.krro.core.keymap :as km]
    [top.kzre.krro.core.message]
    [top.kzre.krro.core.mode :as mode]
