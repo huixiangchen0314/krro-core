@@ -1,12 +1,6 @@
 package top.kzre.krro.core.util;
 
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -44,7 +38,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * exec.close();
  * }</pre>
  */
-public final class SerialExecutor implements AutoCloseable {
+public final class SerialExecutor implements Executor, AutoCloseable {
+
+
 
     public enum OverflowPolicy {
         BLOCK,
@@ -171,6 +167,54 @@ public final class SerialExecutor implements AutoCloseable {
             task.run();
             return null;
         });
+    }
+
+    /**
+     * {@link Executor} 接口实现——提交无返回值任务。
+     *
+     * <p>与 {@link #submit(Runnable)} 的区别：本方法符合
+     * {@link Executor} 契约——队列满且策略不允许等待时<b>同步抛</b>
+     * {@link RejectedExecutionException}，而非通过 failed future 传递。
+     *
+     * <p>任务本身的异常（{@code command.run()} 抛出的）仍通过
+     * failed future 承载——但本方法不返回 future，异常会被
+     * worker 线程的兜底捕获打印（见 {@link #runLoop}）。
+     *
+     * @param command 要执行的任务
+     * @throws NullPointerException      command 为 null
+     * @throws IllegalStateException     执行器已关闭
+     * @throws RejectedExecutionException 队列满且策略不允许等待
+     */
+    @Override
+    public void execute(Runnable command) {
+        if (command == null) {
+            throw new NullPointerException("command");
+        }
+
+        CompletableFuture<Void> future = submit(command);
+
+        // submit 在 enqueue 失败时已同步 completeExceptionally——
+        // 此时 future.isCompletedExceptionally() 立即为 true。
+        // 按 Executor 契约，将拒绝同步抛给调用方。
+        if (future.isCompletedExceptionally()) {
+            try {
+                future.get();
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                // 非必检异常
+                if (cause instanceof RuntimeException ) {
+                    throw (RuntimeException)cause;
+                }
+                if (cause instanceof Error ) {
+                    throw (Error)cause;
+                }
+                //包装
+                throw new RuntimeException(cause);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("interrupted while awaiting rejection", e);
+            }
+        }
     }
 
     /**
