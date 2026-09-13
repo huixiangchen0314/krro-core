@@ -19,7 +19,7 @@
                           Executor
                           Executors
                           ExecutorService
-                          TimeoutException
+                          ThreadFactory TimeoutException
                           TimeUnit)
     (java.util.function BiConsumer
                         BiFunction
@@ -344,9 +344,10 @@
 
 (defonce ^:private timeout-scheduler
          (Executors/newSingleThreadScheduledExecutor
-           (fn [^Runnable r]
-             (doto (Thread. r "krro-promise-timeout")
-               (.setDaemon true)))))
+           (reify ThreadFactory
+             (^Thread newThread [_ ^Runnable r]
+               (doto (Thread. r "krro-promise-timeout")
+                 (.setDaemon true))))))
 
 (defn timeout
   [^Promise p ms]
