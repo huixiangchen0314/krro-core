@@ -102,6 +102,10 @@
   ^Promise []
   (->promise (CompletableFuture.)))
 
+(defn from-completable-future
+  ^Promise [^CompletableFuture cf]
+  (->promise cf))
+
 (defn resolved
   "创建一个已完成的 Promise。"
   ^Promise [v]
@@ -528,3 +532,165 @@
     `(fmap (all [~@exprs])
            (fn [~binding]
              (ensure-promise (do ~@body))))))
+
+
+;; ═══════════════════════════════════════════════
+;; 默认错误处理器
+;; ═══════════════════════════════════════════════
+
+(def ^:dynamic *default-error-handler*
+  "plet> / pplet> 的默认错误处理器。
+   可通过 :catch 关键字覆盖（按调用）或 binding 覆盖（按作用域）。"
+  (fn [e]
+    (binding [*out* *err*]
+      (println "[promise] unhandled error:" (ex-message e)))
+    e))
+
+;; ═══════════════════════════════════════════════
+;; 内部——解析 bindings 中的 :catch
+;; ═══════════════════════════════════════════════
+
+(defn- split-catch
+  "从 bindings 中分离出 :catch 处理器。
+
+   bindings 形如：
+     [sym1 expr1 sym2 expr2 :catch handler-expr]
+
+   返回 [normal-bindings handler-expr-or-default]。
+
+   :catch 可出现在任意位置——但只能出现一次。"
+  [bindings]
+  (loop [bs   (seq bindings)
+         norm []
+         err  nil]
+    (cond
+      (nil? bs)
+      [norm (or err `*default-error-handler*)]
+
+      (= :catch (first bs))
+      (do
+        (when (nil? (second bs))
+          (throw (IllegalArgumentException.
+                   (str "plet>: :catch requires an error handler; "
+                        "bindings = " (vec bindings)))))
+        (when (some? err)
+          (throw (IllegalArgumentException.
+                   (str "plet>: :catch can only appear once; "
+                        "bindings = " (vec bindings)))))
+        (recur (nnext bs) norm (second bs)))
+
+      :else
+      (do
+        (when (nil? (second bs))
+          (throw (IllegalArgumentException.
+                   (str "plet>: bindings must have even number of forms; "
+                        "bindings = " (vec bindings)))))
+        (recur (nnext bs)
+               (conj norm (first bs) (second bs))
+               err)))))
+
+;; ═══════════════════════════════════════════════
+;; 推终结——副作用——返回 nil
+;; ═══════════════════════════════════════════════
+
+(defmacro plet>
+  "顺序链——推终结——副作用——返回 nil。
+
+   绑定按顺序执行，成功后执行 body 作为副作用。
+   失败时调用错误处理器——默认 *default-error-handler*，
+   可用 :catch 关键字覆盖。
+
+   用法：
+     (plet> [user  (fetch-user id)
+             posts (fetch-posts (:id user))]
+       (render-profile user posts))
+
+     (plet> [user  (fetch-user id)
+             :catch (fn [e] (ui-alert! \"加载失败\" e))]
+       (render-user user))
+
+   展开（带 :catch）：
+     (let [p# (plet [user (fetch-user id)]
+               (render-user user))]
+       (tap p# identity)
+       (tap-error p# (fn [e] (ui-alert! \"加载失败\" e)))
+       nil)
+
+   对比：
+     - plet   ——返回 Promise——交给下游
+     - plet>  ——fire-and-forget——返回 nil
+     - plet<  ——阻塞取值——返回普通值"
+  [bindings & body]
+  (let [[normal-bindings error-handler] (split-catch bindings)]
+    `(let [p# (plet ~normal-bindings ~@body)]
+       (tap p# identity)
+       (tap-error p# ~error-handler)
+       nil)))
+
+(defmacro pplet>
+  "并行链——推终结——副作用——返回 nil。
+
+   绑定并行执行，全部成功后执行 body 作为副作用。
+   任一失败时调用错误处理器。
+
+   用法：
+     (pplet> [user  (fetch-user id)
+              posts (fetch-posts id)
+              :catch (fn [e] (log/error e))]
+       (cache/preload! user posts))
+
+   展开（带 :catch）：
+     (let [p# (pplet [user  (fetch-user id)
+                      posts (fetch-posts id)]
+               (cache/preload! user posts))]
+       (tap p# identity)
+       (tap-error p# (fn [e] (log/error e)))
+       nil)"
+  [bindings & body]
+  (let [[normal-bindings error-handler] (split-catch bindings)]
+    `(let [p# (pplet ~normal-bindings ~@body)]
+       (tap p# identity)
+       (tap-error p# ~error-handler)
+       nil)))
+
+;; ═══════════════════════════════════════════════
+;; 拉终结——取值——返回普通值——阻塞
+;; ═══════════════════════════════════════════════
+
+(defmacro plet<
+  "顺序链——拉终结——取值——返回普通值——阻塞。
+
+   阻塞——只在非 UI / 非 GL / 非事件循环线程使用。
+
+   失败时抛原始异常——用 try/catch 捕获。
+
+   用法：
+     (plet< [user  (fetch-user id)
+             posts (fetch-posts (:id user))]
+       {:user user :posts posts})
+
+   展开：
+     (await (plet [user  (fetch-user id)
+                   posts (fetch-posts (:id user))]
+               {:user user :posts posts}))"
+  [bindings & body]
+  `(await (plet ~bindings ~@body)))
+
+(defmacro pplet<
+  "并行链——拉终结——取值——返回普通值——阻塞。
+
+   ⚠️ 阻塞——只在非 UI / 非 GL / 非事件循环线程使用。
+
+   失败时抛原始异常——用 try/catch 捕获。
+
+   用法：
+     (pplet< [user  (fetch-user id)
+              posts (fetch-posts id)]
+       {:user user :posts posts})
+
+   展开：
+     (await (pplet [user  (fetch-user id)
+                    posts (fetch-posts id)]
+               {:user user :posts posts}))"
+  [bindings & body]
+  `(await (pplet ~bindings ~@body)))
