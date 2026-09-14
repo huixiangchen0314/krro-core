@@ -11,32 +11,64 @@
    求解过程用 ploop 驱动——每轮批量并行计算用 promise/all。
 
    错误定位：任一节点 compute 失败时——异常包装为 ex-info——
-   携带 :node-id / :inputs / :cause——精确定位。"
+   携带 :node-id / :inputs / :cause——精确定位。
+
+   节点抽象：
+     - INode 协议——solve / graph 依赖此协议
+     - Node record——默认实现——通过 node 构造
+     - 高级用户可以定义自己的节点类型——实现 INode 协议即可"
   (:require
     [clojure.set :as set]
     [top.kzre.krro.core.util.promise :as promise :refer [ploop precur]]))
 
 ;; ═══════════════════════════════════════════════
-;; 节点
+;; 节点协议
 ;; ═══════════════════════════════════════════════
 
-(defrecord Node [id deps compute-fn])
+(defprotocol INode
+  "计算节点协议——solve / graph 依赖此协议。
 
-(defn node-id    [^Node n] (:id n))
-(defn dependents [^Node n] (:deps n))
+   实现者提供：
+     - node-id：唯一标识
+     - dependents：依赖的 node-id 向量——顺序即 compute inputs 顺序
+     - compute：根据 inputs 计算——返回 Promise 或普通值
 
-(defn compute
-  "执行节点计算——inputs 与 dependents 同序。
-   compute-fn 返回 Promise 或普通值。"
-  [^Node n inputs]
-  ((:compute-fn n) inputs))
+   默认实现见 Node record。
+   高级用户可以定义自己的节点类型——只要实现协议即可。"
+
+  (node-id [_]
+    "节点唯一 id——Keyword / String / 任意可比较对象。")
+
+  (dependents [_]
+    "依赖的 node-id 向量——顺序即 compute inputs 顺序。")
+
+  (compute [_ inputs]
+    "根据 inputs 计算——inputs 与 dependents 同序。
+     返回 Promise<value> 或 value。"))
+
+;; ═══════════════════════════════════════════════
+;; 默认实现——Node record
+;; ═══════════════════════════════════════════════
+
+(defrecord Node [id deps compute-fn]
+  INode
+  (node-id    [_] id)
+  (dependents [_] deps)
+  (compute    [_ inputs] (compute-fn inputs)))
 
 (defn node
-  "构造节点。
+  "构造默认节点。
 
-   - id:         唯一标识
+   - id:         唯一标识——Keyword / String / 任意可比较对象
    - deps:       依赖的 node-id 向量——顺序即 inputs 顺序
-   - compute-fn: (fn [inputs] -> value | Promise)"
+   - compute-fn: (fn [inputs] -> value | Promise)
+                 inputs 是与 deps 同序的向量
+
+   用法：
+     (node :a []      (fn [_]     10))
+     (node :b [:a]    (fn [[a]]   (* a 2)))
+     (node :c [:a]    (fn [[a]]   (+ a 1)))
+     (node :d [:b :c] (fn [[b c]] (+ b c)))"
   [id deps compute-fn]
   (->Node id (vec deps) compute-fn))
 
@@ -44,7 +76,7 @@
 ;; 计算图——预计算 Kahn 所需的索引
 ;; ═══════════════════════════════════════════════
 
-;; {:nodes        {node-id → Node}
+;; {:nodes        {node-id → INode}
 ;;  :reverse-deps {node-id → #{依赖它的 node-id}}
 ;;  :in-degree    {node-id → 依赖数}
 ;;  :initial-ready #{node-id in-degree 为 0}}
@@ -60,7 +92,9 @@
    预计算：
      - reverse-deps：node-id → 谁依赖我
      - in-degree：node-id → 我依赖几个
-     - initial-ready：初始无依赖的节点"
+     - initial-ready：初始无依赖的节点
+
+   nodes 可以是任意实现 INode 协议的对象。"
   [& nodes]
   (let [nodes   (vec nodes)
         ids     (mapv node-id nodes)
