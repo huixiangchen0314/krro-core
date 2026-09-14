@@ -9,7 +9,10 @@
      1. 构造：promise / resolved / rejected / async
      2. 转换：then / map / tap / recover / handle
      3. 组合：all / any / race
-     4. 阻塞：await / await-timeout / deref"
+     4. 阻塞：await / await-timeout / deref
+
+
+     "
   (:refer-clojure :exclude [promise await])
   (:import
     (clojure.lang IBlockingDeref IDeref IPending)
@@ -411,3 +414,117 @@
   "带超时等待。超时返回 fallback-fn 的结果。"
   [^Promise p timeout-ms fallback-fn]
   (await-timeout p timeout-ms (fallback-fn)))
+
+
+;; ═══════════════════════════════════════════════
+;; Monad 绑定
+;; ═══════════════════════════════════════════════
+
+(defn ensure-promise
+  "把值提升为 Promise。已是 Promise 则原样返回。
+   用于 plet / pplet 的 body——body 返回普通值或 Promise 都可以。"
+  ^Promise [v]
+  (if (instance? Promise v)
+    v
+    (resolved v)))
+
+(defmacro plet
+  "Monad 绑定——顺序执行多个 Promise。
+
+  用法：
+    (plet [user    (fetch-user id)
+           posts   (fetch-posts (:id user))
+           profile (fetch-profile (:id user))]
+      {:user user :posts posts :profile profile})
+
+  展开：
+    (then (fetch-user id)
+      (fn [user]
+        (then (fetch-posts (:id user))
+          (fn [posts]
+            (then (fetch-profile (:id user))
+              (fn [profile]
+                (ensure-promise
+                  (do {:user user :posts posts :profile profile})))))))
+
+  绑定规则：
+    - 每个绑定右侧是返回 Promise 的表达式
+    - 绑定按顺序执行——后面的绑定可以引用前面的
+    - body 是最后一个表达式——普通值或 Promise 都可以
+    - 普通值被 resolved 包裹；Promise 原样返回
+    - 支持解构——[[a b] (all [pa pb])]
+
+  错误传播：
+    - 任何绑定失败——后续不执行——错误传给返回的 Promise
+    - 用 recover / handle 处理
+
+  并行：
+    - plet 是顺序绑定——独立的请求用 pplet 并行
+    - (plet [[a b c] (all [pa pb pc])] ...)
+
+  语义对应 Haskell：
+    - plet   ↔ Monad       (>>=) / do-notation   顺序
+    - pplet  ↔ Applicative (<*>)                 并行
+
+  对比 let：
+    - let：右侧是普通值——同步绑定
+    - plet：右侧是 Promise——异步绑定"
+  [bindings & body]
+  (when (odd? (count bindings))
+    (throw (IllegalArgumentException.
+             "plet: bindings must have an even number of forms")))
+  (cond
+    ;; 无绑定——body 直接提升
+    (empty? bindings)
+    `(ensure-promise (do ~@body))
+
+    ;; 至少一个绑定——递归展开
+    :else
+    (let [[binding expr & more] bindings]
+      `(then ~expr
+             (fn [~binding]
+               (plet ~(vec more) ~@body))))))
+
+(defmacro pplet
+  "并行绑定——所有右侧表达式同时求值。
+   名字遵循 Clojure 的 p 前缀传统（pmap / pcalls / pvalues）：
+   第一个 p = parallel，plet = promise let。
+
+  与 plet 的区别：
+    - plet：顺序——后面的绑定依赖前面的
+    - pplet：并行——所有绑定互不依赖
+
+  语义对应 Haskell 的 Applicative：
+    - plet   ↔ Monad       (>>=)   顺序
+    - pplet  ↔ Applicative (<*>)   并行
+
+  用法：
+    (pplet [user  (fetch-user id)
+            posts (fetch-posts id)]
+      {:user user :posts posts})
+
+  展开：
+    (fmap (all [(fetch-user id)
+                (fetch-posts id)])
+          (fn [[user posts]]
+            {:user user :posts posts}))
+
+  对比 plet：
+    (plet [user  (fetch-user id)
+           posts (fetch-posts (:id user))]   ; ← 依赖 user
+      {:user user :posts posts})
+
+  注意：
+    - 绑定之间不能互相引用——因为它们同时求值
+    - 需要依赖时用 plet，或嵌套：先用 plet 拿到依赖，再用 pplet 并行"
+  [bindings & body]
+  (when (odd? (count bindings))
+    (throw (IllegalArgumentException.
+             "pplet: bindings must have an even number of forms")))
+  (let [pairs   (partition 2 bindings)
+        symbols (mapv first pairs)
+        exprs   (mapv second pairs)
+        binding (vec (interleave symbols symbols))]
+    `(fmap (all [~@exprs])
+           (fn [~binding]
+             (ensure-promise (do ~@body))))))
