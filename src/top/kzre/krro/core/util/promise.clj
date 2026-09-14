@@ -14,20 +14,25 @@
 
      "
   (:refer-clojure :exclude [promise await])
+  (:require
+   [top.kzre.krro.core.util.assert :refer [assert-args]])
   (:import
-    (clojure.lang IBlockingDeref IDeref IPending)
-    (java.util.concurrent CompletableFuture
-                          CompletionException
-                          ExecutionException
-                          Executor
-                          Executors
-                          ExecutorService
-                          ThreadFactory TimeoutException
-                          TimeUnit)
-    (java.util.function BiConsumer
-                        BiFunction
-                        Function
-                        Supplier)))
+   (clojure.lang IBlockingDeref IDeref IPending)
+   (java.util.concurrent
+    CompletableFuture
+    CompletionException
+    ExecutionException
+    Executor
+    ExecutorService
+    Executors
+    ThreadFactory
+    TimeUnit
+    TimeoutException)
+   (java.util.function
+    BiConsumer
+    BiFunction
+    Function
+    Supplier)))
 
 ;; ═══════════════════════════════════════════════
 ;; 类型
@@ -127,6 +132,7 @@
        (reify Supplier
          (get [_] (f)))
        executor))))
+
 
 ;; ═══════════════════════════════════════════════
 ;; 手动完成
@@ -234,17 +240,27 @@
 (defn recover-with
   "错误恢复：f 接收异常，返回新 Promise。"
   [^Promise p f]
-  (->promise
-    (.handle (:future p)
-             (reify BiFunction
-               (apply [_ v e]
-                 (if e
-                   (let [cause (if (instance? CompletionException e)
-                                 (.getCause ^CompletionException e)
-                                 e)
-                         ^Promise inner (f cause)]
-                     (:future inner))
-                   (CompletableFuture/completedFuture v)))))))
+  (let [result (CompletableFuture.)]
+    (.whenComplete (:future p)
+                   (reify BiConsumer
+                     (accept [_ v e]
+                       (if e
+                         (let [cause (if (instance? CompletionException e)
+                                       (.getCause ^CompletionException e)
+                                       e)]
+                           (try
+                             (let [^Promise inner (f cause)]
+                               ;; 把 inner 的结果 chain 到 result——flatten
+                               (.whenComplete (:future inner)
+                                              (reify BiConsumer
+                                                (accept [_ iv ie]
+                                                  (if ie
+                                                    (.completeExceptionally result ie)
+                                                    (.complete result iv))))))
+                             (catch Throwable t
+                               (.completeExceptionally result t))))
+                         (.complete result v)))))
+    (->promise result)))
 
 (defn handle
   "统一处理：f 接收 (值, 异常)，返回新值。
@@ -420,6 +436,7 @@
   (await-timeout p timeout-ms (fallback-fn)))
 
 
+
 ;; ═══════════════════════════════════════════════
 ;; Monad 绑定
 ;; ═══════════════════════════════════════════════
@@ -431,6 +448,39 @@
   (if (instance? Promise v)
     v
     (resolved v)))
+
+
+(defn spawn
+  "在 executor 上执行 f——f 的返回值自动扁平化。
+
+   与 async 的区别：
+     - async  —— 把 f 的返回值原样作为结果——如果 f 返回 Promise，
+                  结果是 Promise<Promise<T>>（嵌套）
+     - spawn  —— 把 f 的返回值 flatten——f 返回 Promise<T> 时
+                  结果是 Promise<T>；f 返回普通值 v 时结果是 Promise<v>
+
+   适用场景：f 本身是一个「返回 Promise 的计算」——
+   比如 f = (fn [] (render-layers! ...))，render-layers! 返回
+   Promise<DiffCanvas>。用 spawn 得到 Promise<DiffCanvas>——
+   用 async 得到 Promise<Promise<DiffCanvas>>。
+
+   实现：async 提交 f 到 executor——得到 Promise<Promise<T>>；
+        再 then + ensure-promise——flatten 一层。
+
+   用法：
+     (spawn (fn [] (fetch-user id)) executor)
+     ;; → Promise<User>——不是 Promise<Promise<User>>
+
+     (spawn (fn [] 42) executor)
+     ;; → Promise<42>
+
+     (spawn (fn [] (fetch-user id)))   ; 默认 executor
+     ;; → Promise<User>"
+  (^Promise [f]
+   (spawn f default-executor*))
+  (^Promise [f ^Executor executor]
+   (-> (async f executor)
+       (then ensure-promise))))
 
 (defmacro plet
   "Monad 绑定——顺序执行多个 Promise。
@@ -474,9 +524,8 @@
     - let：右侧是普通值——同步绑定
     - plet：右侧是 Promise——异步绑定"
   [bindings & body]
-  (when (odd? (count bindings))
-    (throw (IllegalArgumentException.
-             "plet: bindings must have an even number of forms")))
+  (assert-args (even? (count bindings))
+               "plet: bindings must have an even number of forms")
   (cond
     ;; 无绑定——body 直接提升
     (empty? bindings)
@@ -485,51 +534,17 @@
     ;; 至少一个绑定——递归展开
     :else
     (let [[binding expr & more] bindings]
-      `(then ~expr
-             (fn [~binding]
+      `(then  (ensure-promise ~expr)
+              (fn [~binding]
                (plet ~(vec more) ~@body))))))
 
 (defmacro pplet
-  "并行绑定——所有右侧表达式同时求值。
-   名字遵循 Clojure 的 p 前缀传统（pmap / pcalls / pvalues）：
-   第一个 p = parallel，plet = promise let。
-
-  与 plet 的区别：
-    - plet：顺序——后面的绑定依赖前面的
-    - pplet：并行——所有绑定互不依赖
-
-  语义对应 Haskell 的 Applicative：
-    - plet   ↔ Monad       (>>=)   顺序
-    - pplet  ↔ Applicative (<*>)   并行
-
-  用法：
-    (pplet [user  (fetch-user id)
-            posts (fetch-posts id)]
-      {:user user :posts posts})
-
-  展开：
-    (fmap (all [(fetch-user id)
-                (fetch-posts id)])
-          (fn [[user posts]]
-            {:user user :posts posts}))
-
-  对比 plet：
-    (plet [user  (fetch-user id)
-           posts (fetch-posts (:id user))]   ; ← 依赖 user
-      {:user user :posts posts})
-
-  注意：
-    - 绑定之间不能互相引用——因为它们同时求值
-    - 需要依赖时用 plet，或嵌套：先用 plet 拿到依赖，再用 pplet 并行"
   [bindings & body]
-  (when (odd? (count bindings))
-    (throw (IllegalArgumentException.
-             "pplet: bindings must have an even number of forms")))
   (let [pairs   (partition 2 bindings)
         symbols (mapv first pairs)
         exprs   (mapv second pairs)
         binding (vec (interleave symbols symbols))]
-    `(fmap (all [~@exprs])
+    `(fmap (all [~@(map (fn [e] `(ensure-promise ~e)) exprs)])   ; ← 包装
            (fn [~binding]
              (ensure-promise (do ~@body))))))
 
@@ -694,3 +709,182 @@
                {:user user :posts posts}))"
   [bindings & body]
   `(await (pplet ~bindings ~@body)))
+
+
+;; ═══════════════════════════════════════════════
+;; 递归标记——ploop 专用
+;; ═══════════════════════════════════════════════
+
+(defn precur
+  "ploop 的递归标记——携带下一轮的绑定值。
+
+   <b>只能在 ploop 的 body 里调用</b>——在 pploop 或外部调用无意义。
+
+   <h3>为什么是函数而不是特殊形式</h3>
+
+   <p>{@code precur} 是普通函数——返回带标记的 map：
+
+   <pre>{@code
+   (precur expr1 expr2)
+   ;; → {::precur true, :vals [expr1 expr2]}
+   }</pre>
+
+   <p>因为它是数据——<b>可以出现在任何表达式位置</b>：
+   {@code if} 分支、{@code then} 回调、{@code handle} 错误处理、
+   嵌套闭包——ploop 的展开通过 then 链透传检测这个标记——
+   不破坏嵌套的 {@code loop} / {@code recur}。
+
+   <h3>求值时机</h3>
+
+   <p>参数在调用点求值——都用当前作用域的值——对应 {@code recur}：
+
+   <pre>{@code
+   (loop [a 1 b 2]
+     (recur (inc a) (+ a b)))   ; 都用旧值
+   }</pre>
+
+   <p>{@code precur} 的语义一致。每个表达式的值可以是 Promise
+   或普通值——ploop 用 {@code ensure-promise} 统一——
+   {@code all} 并行解析。
+
+   <h3>对称性</h3>
+
+   <p>与 {@link pprecur} 对称——ploop 用 precur、pploop 用 pprecur。
+   两者当前语义相同——分开定义是为了拓展性和错误检测：
+   用错标记时——递归不会被识别——在运行时表现为「提前返回」。"
+  [& vals]
+  {::precur true
+   :vals   (vec vals)})
+
+(defn ^{:no-doc true} precur?
+  "检测是否为 precur 返回的标记。
+   public 是宏展开的需要——ploop 展开后代码会调用它。
+   用户不应直接调用。"
+  [v]
+  (and (map? v) (::precur v)))
+
+;; ═══════════════════════════════════════════════
+;; 递归标记——pploop 专用
+;; ═══════════════════════════════════════════════
+
+(defn pprecur
+  "pploop 的递归标记——携带下一轮的绑定值。
+
+   <b>只能在 pploop 的 body 里调用</b>——在 ploop 或外部调用无意义。
+
+   <h3>与 precur 的关系</h3>
+
+   <p>当前 {@code pprecur} 和 {@code precur} 的运行时行为完全一致——
+   都是「返回标记 map——由对应宏的 then 链识别——递归」。
+
+   <p><b>为什么分开定义</b>：
+   <ul>
+     <li><b>对称性</b>——{@code ploop}/{@code precur}、
+         {@code pploop}/{@code pprecur} 成对——读者一眼看出配对</li>
+     <li><b>拓展性</b>——将来 pploop 的递归语义可能变化
+         （比如批处理、分组、并行度控制）——{@code pprecur}
+         可以独立演进——不影响 ploop</li>
+     <li><b>错误检测</b>——用错标记（ploop 里写 pprecur）时——
+         检测不匹配——递归被跳过——要么提前返回、要么报错——
+         暴露 bug 而不是静默出错</li>
+   </ul>
+
+   <h3>用法</h3>
+
+   <pre>{@code
+   (pploop [user    (fetch-user id)
+            profile (fetch-profile id)]
+     (if done?
+       (combine user profile)
+       (pprecur (fetch-user id) (fetch-profile id))))
+   }</pre>"
+  [& vals]
+  {::pprecur true
+   :vals    (vec vals)})
+
+(defn ^{:no-doc true} pprecur?
+  "检测是否为 pprecur 返回的标记。
+   public 是宏展开的需要——pploop 展开后代码会调用它。
+   用户不应直接调用。"
+  [v]
+  (and (map? v) (::pprecur v)))
+
+;; ═══════════════════════════════════════════════
+;; ploop —— 顺序初始绑定
+;; ═══════════════════════════════════════════════
+(defmacro ploop
+  "Promise 循环——顺序初始绑定——模仿 Clojure 的 loop。
+
+   初始绑定用 plet（顺序）、precur 绑定用 all（并行）。
+   递归标记：precur。
+
+   展开：
+     (ploop [a init-a b init-b] body)
+   ⇒
+     (letfn [(step [a b]
+               (-> (do body)
+                   ensure-promise
+                   (then (fn [v]
+                           (if (precur? v)
+                             (-> (all (mapv ensure-promise (:vals v)))
+                                 (then (fn [resolved]
+                                         (apply step resolved))))
+                             v)))))]
+       (plet [a init-a b init-b]
+         (step a b)))"
+  [bindings & body]
+  (assert-args (even? (count bindings))
+               "ploop: bindings must have an even number of forms")
+  (let [syms (vec (take-nth 2 bindings))
+        step (gensym "ploop-step")]
+    `(letfn [(~step [~@syms]
+               (-> (do ~@body)
+                   ensure-promise
+                   (then (fn [v#]
+                           (if (precur? v#)
+                             (-> (all (mapv ensure-promise (:vals v#)))
+                                 (then (fn [resolved#]
+                                         (apply ~step resolved#))))
+                             (ensure-promise v#))))))]
+       (plet ~bindings
+             (~step ~@syms)))))
+
+(defmacro pploop
+  "Promise 循环——并行初始绑定。
+
+   初始绑定用 all（并行）、pprecur 绑定用 all（并行）。
+   递归标记：pprecur。
+
+   展开：
+     (pploop [a init-a b init-b] body)
+   ⇒
+     (letfn [(step [a b]
+               (-> (do body)
+                   ensure-promise
+                   (then (fn [v]
+                           (if (pprecur? v)
+                             (-> (all (mapv ensure-promise (:vals v)))
+                                 (then (fn [resolved]
+                                         (apply step resolved))))
+                             v)))))]
+       (-> (all (mapv ensure-promise [init-a init-b]))
+           (then (fn [resolved]
+                   (apply step resolved)))))"
+  [bindings & body]
+  (assert-args (even? (count bindings))
+               "pploop: bindings must have an even number of forms")
+  (let [syms  (vec (take-nth 2 bindings))
+        inits (vec (take-nth 2 (rest bindings)))
+        step  (gensym "pploop-step")]
+    `(letfn [(~step [~@syms]
+               (-> (do ~@body)
+                   ensure-promise
+                   (then (fn [v#]
+                           (if (pprecur? v#)
+                             (-> (all (mapv ensure-promise (:vals v#)))
+                                 (then (fn [resolved#]
+                                         (apply ~step resolved#))))
+                             (ensure-promise v#))))))]
+       (-> (all (mapv ensure-promise [~@inits]))
+           (then (fn [resolved#]
+                   (apply ~step resolved#)))))))
