@@ -226,7 +226,7 @@
    <b>migrate</b>
      给定图、节点 id、到达的变化、旧值、输入值序列——返回新值。
      - 旧值是一等公民——迁移可以从旧值出发
-     - changes 是到达本节点的 IChange——可能为空变化（新增节点）
+     - change 是到达本节点的 IChange——可能为空变化（新增节点）
      - old-value 为 nil 表示新增节点——迁移函数应能处理
      - 纯函数——不修改图、不修改旧值
      - 可返回普通值或 Promise
@@ -251,14 +251,14 @@
   (inputs [diff graph node-id]
     "返回节点的输入 id 序列——migrate 的 input-values 参数。")
 
-  (migrate [diff graph node-id changes old-value input-values]
+  (migrate [diff graph node-id change old-value input-values]
     "把一个节点的旧值迁移为新值。
 
      参数：
        - diff:        本规格
        - graph:       图——只读
        - node-id:     节点标识——定位「在哪个节点」
-       - changes:     到达本节点的 IChange——「为什么变」
+       - change:     到达本节点的 IChange——「为什么变」
                       新增节点时为空变化
        - old-value:   旧值——nil 表示新增节点
        - input-values: 输入节点的当前值序列
@@ -284,8 +284,8 @@
   (outgoing [_ graph node-id]                    (outgoing-fn graph node-id))
   (order    [_ graph affected-ids]               (order-fn graph affected-ids))
   (inputs   [_ graph node-id]                    (inputs-fn graph node-id))
-  (migrate  [_ graph node-id changes old-value ins]
-    (migrate-fn graph node-id changes old-value ins))
+  (migrate  [_ graph node-id change old-value ins]
+    (migrate-fn graph node-id change old-value ins))
   (release  [_ graph old-value]
     (when release-fn (release-fn old-value))))
 
@@ -435,10 +435,10 @@
                               (let [ins          (inputs diff-spec graph node-id)
                                     invs         (mapv #(get vals %) ins)
                                     old-val      (get old-values node-id)
-                                    node-changes (get merged-state node-id (no-change))
+                                    node-change (get merged-state node-id (no-change))
                                     v            (migrate diff-spec graph
                                                           node-id
-                                                          node-changes
+                                                          node-change
                                                           old-val
                                                           invs)]
                                 (assoc vals node-id v)))
