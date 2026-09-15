@@ -39,7 +39,7 @@
   (node-id [_]
     "节点唯一 id——Keyword / String / 任意可比较对象。")
 
-  (dependents [_]
+  (dependencies [_]
     "依赖的 node-id 向量——顺序即 compute inputs 顺序。")
 
   (compute [_ inputs]
@@ -112,7 +112,7 @@
       (throw (IllegalArgumentException.
                (str "duplicate node ids: " dup-ids))))
     (doseq [n nodes
-            dep (dependents n)]
+            dep (dependencies n)]
       (when-not (contains? id-set dep)
         (throw (IllegalArgumentException.
                  (str "node " (node-id n)
@@ -124,12 +124,12 @@
                            (reduce (fn [a dep]
                                      (update a dep (fnil conj #{}) (node-id n)))
                                    acc
-                                   (dependents n)))
+                                   (dependencies n)))
                          {}
                          nodes)
           in-degree    (into {}
                              (map (fn [n]
-                                    [(node-id n) (count (dependents n))]))
+                                    [(node-id n) (count (dependencies n))]))
                              nodes)
           initial-ready (into #{}
                               (filter #(zero? (get in-degree %)))
@@ -151,7 +151,7 @@
   [nodes-map ready-ids results]
   (let [ps (mapv (fn [nid]
                    (let [n      (get nodes-map nid)
-                         deps   (dependents n)
+                         deps   (dependencies n)
                          inputs (mapv results deps)]
                      (-> (try
                            (promise/ensure-promise (compute n inputs))
