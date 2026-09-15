@@ -82,6 +82,9 @@
 ;;  :initial-ready #{node-id in-degree 为 0}}
 (defrecord ComputingGraph [nodes reverse-deps in-degree initial-ready])
 
+(defn nodes [^ComputingGraph graph]
+  (:nodes graph))
+
 (defn reverse-dependencies
   "计算图节点的反向依赖映射, {node-id → #{依赖它的 node-id}}"
   [^ComputingGraph graph]
@@ -135,6 +138,54 @@
                               (filter #(zero? (get in-degree %)))
                               ids)]
       (->ComputingGraph nodes-map reverse-deps in-degree initial-ready))))
+
+(defn reduce-to
+  "按目标节点集合化简计算图。
+
+   从 targets 出发沿依赖边反向 BFS——只保留 targets 的依赖闭包。
+
+   闭包是传递封闭的——闭包内节点的所有依赖也在闭包内，
+   因此无需过滤节点依赖。这一点很重要：不需要改写节点的
+   dependencies，也就不需要 INode 提供 with-dependencies 之类的操作。
+
+   缓存节点（dependencies 为空）自然成为闭包边界：
+   它们进入闭包（被 targets 依赖），但它们的上游不进入
+   （反向 BFS 在 dependencies 为空处停）。
+
+   孤立节点（既不是 target 也不被 target 依赖）不在闭包内——
+   这正是「无约束节点不被求值」的表达。
+
+   参数：
+     - g:       ComputingGraph
+     - targets: 目标节点 id——求解的终点
+
+   返回：
+     新的 ComputingGraph——只含 targets 的依赖闭包。
+     若 targets 为空——返回空图。
+
+   用法：
+     (reduce-to g :root)
+     (reduce-to g :root :stats)"
+  [^ComputingGraph g & targets]
+  (let [node-map   (:nodes g)
+        target-set (set targets)]
+    ;; 校验 targets 存在
+    (doseq [t target-set]
+      (when-not (contains? node-map t)
+        (throw (IllegalArgumentException.
+                 (str "unknown target node: " t)))))
+    ;; 反向 BFS——求依赖闭包
+    (let [closure (loop [visited  #{}
+                         frontier target-set]
+                    (if (empty? frontier)
+                      visited
+                      (let [ups (into #{}
+                                      (comp (mapcat #(dependencies (get node-map %)))
+                                            (remove visited))
+                                      frontier)]
+                        (recur (into visited frontier) ups))))]
+      ;; 用闭包内节点重建图——注意是 node-map（map），不是 nodes（函数）
+      (apply graph (map node-map closure)))))
 
 ;; ═══════════════════════════════════════════════
 ;; 求解——辅助
