@@ -9,11 +9,14 @@
    [top.kzre.krro.core.message :as msg]
    [top.kzre.krro.core.util :as util]
    [top.kzre.krro.core.variable :refer [*debug*]]))
+;; TODO 泛化为通用分层路由
 
 ;; ── 全局键图 ────────────────────────────────
 (defonce global-keymap (atom {}))
 
 
+;; ── 键序列前缀栈 ───────────────────────────
+(defonce prefix-stack (atom []))
 
 ;; ── 键图构造 ────────────────────────────────
 (defn keymap*
@@ -67,8 +70,6 @@
   (let [nested (keymap* key-bindings)]      ; 转为嵌套键图
     (swap! global-keymap util/merge-deep nested)))
 
-;; ── 键序列前缀栈 ───────────────────────────
-(defonce prefix-stack (atom []))
 
 (defn lookup-key
   "在给定的键图中查找 key-vec 对应的绑定。

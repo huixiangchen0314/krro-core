@@ -53,7 +53,7 @@
 (defrecord Node [id deps compute-fn]
   INode
   (node-id    [_] id)
-  (dependents [_] deps)
+  (dependencies [_] deps)
   (compute    [_ inputs] (compute-fn inputs)))
 
 (defn node
@@ -81,6 +81,11 @@
 ;;  :in-degree    {node-id → 依赖数}
 ;;  :initial-ready #{node-id in-degree 为 0}}
 (defrecord ComputingGraph [nodes reverse-deps in-degree initial-ready])
+
+(defn reverse-dependencies
+  "计算图节点的反向依赖映射, {node-id → #{依赖它的 node-id}}"
+  [^ComputingGraph graph]
+  (:reverse-deps graph))
 
 (defn graph
   "从节点集合构建计算图——预计算 Kahn 算法所需索引。
@@ -228,6 +233,9 @@
                               :ready     newly-ready
                               :remaining (- remaining (count completed-ids))})))))))))))
 
+
+
+
 ;; ═══════════════════════════════════════════════
 ;; 便捷——同步等待
 ;; ═══════════════════════════════════════════════
@@ -237,3 +245,4 @@
    只在非 UI 线程使用。"
   [^ComputingGraph graph]
   (promise/await (solve graph)))
+
