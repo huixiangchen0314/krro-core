@@ -35,9 +35,6 @@
    分层
    ═══════════════════════════════════════════════
 
-   底层——闭包传播
-     propagate: (种子, outgoing) → 受影响集合
-
    中层——值迁移
      IChange:   变化描述——种子 + 合并 + 空判定
      IDiff:     差分规格——传播方向 + 顺序 + 输入 + migrate + release
@@ -47,13 +44,24 @@
    多变化传播
    ═══════════════════════════════════════════════
 
-   diff 接受多个 IChange——每个独立从自己的种子出发传播。
-   多个变化在同一节点交汇——调用 combine 尝试合并：
-     - 返回新变化  → 用合并结果继续向下游
-     - 返回空变化  → 抵消——不向下游传播
-     - 返回 nil    → 不可合并——两者都保留，各自传播
+   diff 接受多个 IChange——每个从自己的种子出发传播。
+   状态是 {node-id → #{IChange}}——集合。
 
-   节点处的 migrate 收到到达该节点的变化集合——
+   去重靠结构相等：同一 change 从多条路径到达——集合自动去重
+   （diamond 图不会重复合并）。
+   不同 change（不同 idx）——集合里都保留——最后 reduce 合并。
+
+   <b>change 必须携带身份标识（idx）</b>
+     两个独立操作产生的 change——即使内容相同——也必须不相等。
+     典型做法：加一个全局唯一的 op-id 字段（uuid / 自增计数器）。
+     否则两次相同操作会被集合误去重成一次。
+
+   combine 的契约：
+     返回 IChange——不返回 nil；
+     不可合并的变化由实现自行组合（例如 CompositeChange）；
+     必须满足结合律。
+
+   节点处的 migrate 收到 reduce 后的单个 IChange——
    据此决定走哪条迁移路径。
 
    ═══════════════════════════════════════════════
@@ -89,55 +97,22 @@
    数学基础
    ═══════════════════════════════════════════════
 
-   propagate 实现「闭包算子」：
-     外延性、单调性、幂等性。
+   propagate-changes 实现「带合并的闭包传播」：
+     外延性——结果 ⊇ 种子；
+     单调性——种子更大 → 结果更大；
+     去重律——结构相等的 change 多路径到达只保留一份；
+     空集合截断——空集合不向下游传播。
 
    combine 实现「变化代数」：
      结合律——合并顺序无关；
-     存在空元素——无变化；
-     nil 表示不可合并——保持两者独立。
+     存在空元素——empty-change? 为真；
+     代数封闭——Change × Change → Change——无 nil 泄漏。
 
    diff 实现「离散导数」：
      已知 f、输入变化 δa——求输出变化 δb。
      在 DAG 上——沿依赖边传播——对受影响节点做值迁移。"
   (:require
     [clojure.set :as set]))
-
-;; ═══════════════════════════════════════════════
-;; 底层——闭包传播
-;; ═══════════════════════════════════════════════
-
-(defn propagate
-  "从种子集合出发，沿 outgoing 求可达闭包。
-
-   <h2>性质</h2>
-   满足闭包算子三条性质：
-     1. 外延性——结果 ⊇ 种子
-     2. 单调性——种子更大 → 结果更大
-     3. 幂等性——再次传播不产生新节点
-
-   <h2>实现</h2>
-   BFS——每个节点最多访问一次——O(V + E)。
-
-   <h2>参数</h2>
-   - seeds:    起始节点集合
-   - outgoing: (node-id) → 邻居 id 集合
-
-   <h2>返回</h2>
-   可达闭包——包含种子自身。
-
-   <h2>纯函数</h2>
-   不修改任何输入。"
-  [seeds outgoing]
-  (loop [visited  #{}
-         frontier (set seeds)]
-    (if (empty? frontier)
-      visited
-      (let [next-nodes (into #{}
-                             (comp (mapcat outgoing)
-                                   (remove visited))
-                             frontier)]
-        (recur (into visited frontier) next-nodes)))))
 
 ;; ═══════════════════════════════════════════════
 ;; Change —— 值变化描述
@@ -150,6 +125,12 @@
    Change 假设节点存在；删除节点属于结构变化——
    由上层处理——不在本协议职责内。
 
+   <h2>身份</h2>
+
+   实现必须携带身份标识——两个独立操作产生的 change 必须不相等。
+   典型做法：加一个全局唯一的 op-id 字段（uuid / 自增计数器）。
+   结构相等是 diff 去重的依据——不同 op 的 change 不能相等。
+
    <h2>契约</h2>
 
    <b>seeds</b>
@@ -157,9 +138,10 @@
      空集表示无变化。
 
    <b>combine</b>
-     合并两个变化——返回新变化、空变化、或 nil。
+     合并两个变化——返回 IChange。
      必须满足结合律。
-     nil 表示「无法和这个变化合并」——两者都保留，各自传播。
+     不可合并的情况由实现自行组合（例如 CompositeChange）——
+     不允许返回 nil——保证代数封闭。
 
    <b>empty-change?</b>
      判断是否为空变化。
@@ -172,9 +154,9 @@
     "返回种子集合——传播起点。空集表示无变化。")
 
   (combine [change other]
-    "合并两个变化——返回新变化、空变化、或 nil。
+    "合并两个变化——返回 IChange。
      必须满足结合律。
-     nil 表示无法和这个变化合并。")
+     代数封闭——不允许返回 nil。")
 
   (empty-change? [change]
     "返回 true 表示空变化——不触发任何迁移。"))
@@ -187,9 +169,22 @@
   IChange
   (seeds         [_] seed-set)
   (combine       [_ other]
-    (if (instance? SetChange other)
+    (cond
+      ;; 同类——并集
+      (instance? SetChange other)
       (->SetChange (into seed-set (:seed-set other)))
-      nil))
+
+      ;; 自己是空——对方优先——保证 (combine no-change x) = x
+      (empty? seed-set)
+      other
+
+      ;; 自己是具体种子、对方是异类——协议要求返回 IChange。
+      ;; SetChange 不携带其他类型信息——无法安全吞掉对方。
+      ;; 上层若需混用——应提供自己的复合实现。
+      :else
+      (throw (ex-info "SetChange cannot combine with a different IChange type"
+                      {:this  seed-set
+                       :other (type other)}))))
   (empty-change? [_] (empty? seed-set)))
 
 (defn set-change
@@ -229,9 +224,9 @@
      顺序语义由实现定义——通常与 migrate 的 input-values 顺序一致。
 
    <b>migrate</b>
-     给定图、节点 id、到达的变化集合、旧值、输入值序列——返回新值。
+     给定图、节点 id、到达的变化、旧值、输入值序列——返回新值。
      - 旧值是一等公民——迁移可以从旧值出发
-     - changes 是到达本节点的变化集合——可能为空（新增节点）
+     - changes 是到达本节点的 IChange——可能为空变化（新增节点）
      - old-value 为 nil 表示新增节点——迁移函数应能处理
      - 纯函数——不修改图、不修改旧值
      - 可返回普通值或 Promise
@@ -263,7 +258,8 @@
        - diff:        本规格
        - graph:       图——只读
        - node-id:     节点标识——定位「在哪个节点」
-       - changes:     到达本节点的变化集合——「为什么变」
+       - changes:     到达本节点的 IChange——「为什么变」
+                      新增节点时为空变化
        - old-value:   旧值——nil 表示新增节点
        - input-values: 输入节点的当前值序列
 
@@ -311,60 +307,36 @@
 ;; 传播——内部
 ;; ═══════════════════════════════════════════════
 
-(defn- pairwise-merge
-  "对一组 changes 做 pairwise combine——反复直到不动点。
-   返回合并后的集合（已去掉空变化）。"
-  [cs]
-  (loop [cs (into #{} (remove empty-change?) cs)]
-    (let [v     (vec cs)
-          pairs (for [i (range (count v))
-                      j (range (inc i) (count v))]
-                  [(nth v i) (nth v j)])
-          [cs' changed?]
-          (reduce
-            (fn [[acc changed?] [a b]]
-              (if (and (contains? acc a) (contains? acc b))
-                (if-let [c (combine a b)]
-                  (let [acc' (disj (disj acc a) b)
-                        acc' (if (empty-change? c) acc' (conj acc' c))]
-                    [acc' true])
-                  [acc changed?])
-                [acc changed?]))
-            [cs false]
-            pairs)]
-      (if changed?
-        (recur cs')
-        cs))))
-
 (defn- propagate-changes
   "从初始 state 出发，沿 outgoing 传播 changes。
-   state: {node-id → #{change}}
-   每轮对 worklist 中的节点做 pairwise 合并；
-   无条件把合并结果推到下游——下游集合变化才入 worklist。
-   空集合不传播——这是「抵消截断」的实现点。"
+   state: {node-id → #{IChange}}
+
+   每个节点持有到达它的 change 集合。
+   集合靠结构相等去重——同一 change 从多条路径到达只保留一份
+   （diamond 图不会重复合并）。
+   不同 change（不同 idx）——都保留。
+   空集合不向下游传播——这是「抵消截断」的实现点。"
   [diff-spec graph init-state]
   (loop [state    (into {} (map (fn [[k v]] [k (set v)])) init-state)
          worklist (set (keys init-state))]
     (if (empty? worklist)
       state
-      (let [nid       (first worklist)
-            worklist  (disj worklist nid)
-            cs-now    (get state nid #{})
-            cs-merged (pairwise-merge cs-now)
-            state'    (assoc state nid cs-merged)
-            [state'' worklist']
+      (let [nid      (first worklist)
+            worklist (disj worklist nid)
+            cs-now   (get state nid #{})
+            [state' worklist']
             (reduce
               (fn [[st wl] succ]
                 (let [succ-old (get st succ #{})
-                      succ-new (into succ-old cs-merged)]
+                      succ-new (into succ-old cs-now)]
                   (if (= succ-old succ-new)
                     [st wl]
                     [(assoc st succ succ-new) (conj wl succ)])))
-              [state' worklist]
-              (if (seq cs-merged)
-                (outgoing diff-spec graph nid)
-                []))]
-        (recur state'' worklist')))))
+              [state worklist]
+              (if (empty? cs-now)
+                []
+                (outgoing diff-spec graph nid)))]
+        (recur state' worklist')))))
 
 ;; ═══════════════════════════════════════════════
 ;; 顶层——diff
@@ -380,7 +352,14 @@
 
    <h2>多 change 传播</h2>
    每个 change 独立从自己的种子出发传播。
-   多个 change 在同一节点交汇——调用 combine 尝试合并。
+   状态是 {node-id → #{IChange}}——集合。
+   同一 change 从多路径到达——集合去重（结构相等）。
+   不同 change——都保留——最后 reduce combine 合并成一个。
+   combine 返回 IChange——空变化不向下游传播。
+
+   <b>change 必须携带身份标识</b>
+     两个独立操作产生的 change 即使内容相同也必须不相等——
+     否则集合会误去重。典型做法：加一个全局唯一 op-id 字段。
 
    <h2>参数</h2>
    - diff-spec:  Diff 实例
@@ -407,7 +386,7 @@
      (diff diff-spec new-graph changes old-values)
      ;; → 新值表"
   [diff-spec graph changes old-values]
-  (let [active-changes (into #{} (remove empty-change?) changes)
+  (let [active-changes (into [] (remove empty-change?) changes)
         graph-ids      (set (keys (:nodes graph)))
         old-ids        (set (keys old-values))
         added          (set/difference graph-ids old-ids)
@@ -419,7 +398,8 @@
       ;; 第一道短路——输入无变化、无增删
       old-values
 
-      (let [init-state
+      (let [;; ① 初始 state——每个 change 的种子——集合
+            init-state
             (reduce
               (fn [st change]
                 (reduce (fn [st nid]
@@ -429,11 +409,19 @@
               {}
               active-changes)
 
+            ;; ② 传播——集合 state——去重靠结构相等
             final-state (propagate-changes diff-spec graph init-state)
 
+            ;; ③ 每个节点的 change 集合 reduce 成单个 IChange
+            merged-state (into {}
+                               (map (fn [[nid cs]]
+                                      [nid (reduce combine (no-change) cs)]))
+                               final-state)
+
+            ;; ④ affected = 非空变化的节点 ∪ added
             affected    (into added
-                              (filter #(seq (get final-state %)))
-                              (keys final-state))]
+                              (remove #(empty-change? (get merged-state %)))
+                              (keys merged-state))]
 
         (if (and (empty? affected)
                  (empty? removed))
@@ -447,7 +435,7 @@
                               (let [ins          (inputs diff-spec graph node-id)
                                     invs         (mapv #(get vals %) ins)
                                     old-val      (get old-values node-id)
-                                    node-changes (get final-state node-id #{})
+                                    node-changes (get merged-state node-id (no-change))
                                     v            (migrate diff-spec graph
                                                           node-id
                                                           node-changes
