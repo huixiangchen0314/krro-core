@@ -220,6 +220,17 @@
                      (accept [_ _ e]
                        (when e (f e)))))))
 
+(defn tap-finally
+  "副作用：无论成功失败，f 都执行（无参数）。
+   返回原 Promise（值/异常不变）。
+   用于清理、日志等。"
+  [^Promise p f]
+  (->promise
+    (.whenComplete (:future p)
+                   (reify BiConsumer
+                     (accept [_ _ _]
+                       (f))))))
+
 ;; ═══════════════════════════════════════════════
 ;; 错误处理
 ;; ═══════════════════════════════════════════════
@@ -565,22 +576,28 @@
 ;; 内部——解析 bindings 中的 :catch
 ;; ═══════════════════════════════════════════════
 
-(defn- split-catch
-  "从 bindings 中分离出 :catch 处理器。
+(defn- split-handlers
+  "从 bindings 中分离出 :catch 和 :finally 处理器。
 
    bindings 形如：
-     [sym1 expr1 sym2 expr2 :catch handler-expr]
+     [sym1 expr1 sym2 expr2 :catch handler :finally cleanup]
 
-   返回 [normal-bindings handler-expr-or-default]。
+   返回 map：
+     {:bindings  [sym1 expr1 sym2 expr2]     ;; 普通绑定——位置对
+      :catch     handler-expr                ;; 默认 *default-error-handler*
+      :finally   cleanup-expr 或 nil}        ;; 未提供时为 nil
 
-   :catch 可出现在任意位置——但只能出现一次。"
+   :catch / :finally 可出现在任意位置——但各自只能出现一次。"
   [bindings]
-  (loop [bs   (seq bindings)
-         norm []
-         err  nil]
+  (loop [bs      (seq bindings)
+         norm    []
+         err     nil
+         finally nil]
     (cond
       (nil? bs)
-      [norm (or err `*default-error-handler*)]
+      {:bindings norm
+       :catch    (or err `*default-error-handler*)
+       :finally  finally}
 
       (= :catch (first bs))
       (do
@@ -592,7 +609,19 @@
           (throw (IllegalArgumentException.
                    (str "plet>: :catch can only appear once; "
                         "bindings = " (vec bindings)))))
-        (recur (nnext bs) norm (second bs)))
+        (recur (nnext bs) norm (second bs) finally))
+
+      (= :finally (first bs))
+      (do
+        (when (nil? (second bs))
+          (throw (IllegalArgumentException.
+                   (str "plet>: :finally requires a cleanup fn; "
+                        "bindings = " (vec bindings)))))
+        (when (some? finally)
+          (throw (IllegalArgumentException.
+                   (str "plet>: :finally can only appear once; "
+                        "bindings = " (vec bindings)))))
+        (recur (nnext bs) norm err (second bs)))
 
       :else
       (do
@@ -602,70 +631,31 @@
                         "bindings = " (vec bindings)))))
         (recur (nnext bs)
                (conj norm (first bs) (second bs))
-               err)))))
+               err
+               finally)))))
 
 ;; ═══════════════════════════════════════════════
 ;; 推终结——副作用——返回 nil
 ;; ═══════════════════════════════════════════════
 
 (defmacro plet>
-  "顺序链——推终结——副作用——返回 nil。
-
-   绑定按顺序执行，成功后执行 body 作为副作用。
-   失败时调用错误处理器——默认 *default-error-handler*，
-   可用 :catch 关键字覆盖。
-
-   用法：
-     (plet> [user  (fetch-user id)
-             posts (fetch-posts (:id user))]
-       (render-profile user posts))
-
-     (plet> [user  (fetch-user id)
-             :catch (fn [e] (ui-alert! \"加载失败\" e))]
-       (render-user user))
-
-   展开（带 :catch）：
-     (let [p# (plet [user (fetch-user id)]
-               (render-user user))]
-       (tap p# identity)
-       (tap-error p# (fn [e] (ui-alert! \"加载失败\" e)))
-       nil)
-
-   对比：
-     - plet   ——返回 Promise——交给下游
-     - plet>  ——fire-and-forget——返回 nil
-     - plet<  ——阻塞取值——返回普通值"
   [bindings & body]
-  (let [[normal-bindings error-handler] (split-catch bindings)]
-    `(let [p# (plet ~normal-bindings ~@body)]
+  (let [{:keys [bindings catch finally]} (split-handlers bindings)]
+    `(let [p# (plet ~bindings ~@body)]
        (tap p# identity)
-       (tap-error p# ~error-handler)
+       (tap-error p# ~catch)
+       ~@(when finally
+           [`(tap-finally p# ~finally)])
        nil)))
 
 (defmacro pplet>
-  "并行链——推终结——副作用——返回 nil。
-
-   绑定并行执行，全部成功后执行 body 作为副作用。
-   任一失败时调用错误处理器。
-
-   用法：
-     (pplet> [user  (fetch-user id)
-              posts (fetch-posts id)
-              :catch (fn [e] (log/error e))]
-       (cache/preload! user posts))
-
-   展开（带 :catch）：
-     (let [p# (pplet [user  (fetch-user id)
-                      posts (fetch-posts id)]
-               (cache/preload! user posts))]
-       (tap p# identity)
-       (tap-error p# (fn [e] (log/error e)))
-       nil)"
   [bindings & body]
-  (let [[normal-bindings error-handler] (split-catch bindings)]
-    `(let [p# (pplet ~normal-bindings ~@body)]
+  (let [{:keys [bindings catch finally]} (split-handlers bindings)]
+    `(let [p# (pplet ~bindings ~@body)]
        (tap p# identity)
-       (tap-error p# ~error-handler)
+       (tap-error p# ~catch)
+       ~@(when finally
+           [`(tap-finally p# ~finally)])
        nil)))
 
 ;; ═══════════════════════════════════════════════

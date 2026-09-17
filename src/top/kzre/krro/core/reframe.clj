@@ -283,6 +283,7 @@
                 old-record   (get-in ctx-before [:coeffects :record])
                 final-record (or record old-record)]
             (-> ctx-before
+                (assoc :effects result)
                 (assoc-in [:effects :record] final-record)
                 (assoc-in [:effects :fx] (or fx []))
                 (cond-> (some? dispatch)   (assoc-in [:effects :dispatch] dispatch)
