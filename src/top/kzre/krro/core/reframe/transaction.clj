@@ -22,10 +22,11 @@
   [:transaction-operation trans-kind op-kind args])
 
 (defprotocol ITransaction
+  (kind [_])
   (begin [_ kwargs record])
-  (operate [_ kwargs record])
+  (operate [_ op-kind kwargs record])
   (commit [_ kwargs record])
-  (rollback [_ kwargs record]))
+  (rollback [_ ctx record]))
 
 (defonce ^:private transaction-registry (atom {}))
 
@@ -41,123 +42,83 @@
   (swap! transaction-registry assoc kind trans))
 
 (defonce ^:private transaction-key* ::transaction)
-
 (defn transaction-key [] transaction-key*)
 
+(defonce ^:private transaction-instructions-key* ::transaction-instructions)
+(defn transaction-instructions-key [] transaction-instructions-key*)
+
 (defn- execute-instruction
-  "执行一条事务指令——更新事务状态——返回结果。
-
-   ═══════════════════════════════════════════════
-   指令形态
-   ═══════════════════════════════════════════════
-
-     [:begin-transaction    kind {args}]
-     [:transaction-operation kind op-kind {args}]
-     [:commit-transaction   kind {args}]
-     [:rollback-transaction kind {args}]
-
-   ═══════════════════════════════════════════════
-   返回
-   ═══════════════════════════════════════════════
-
-     {:new-transaction <事务状态或 nil>
-      :result          {:record <db 片段>
-                        :fx     [fx ...]}}
-
-   ═══════════════════════════════════════════════
-   事务状态
-   ═══════════════════════════════════════════════
-
-     {:kind     <事务类型>
-      :instance <ITransaction 实例>}
-     或 nil（无活跃事务）"
-  [transaction instruction-v record]
-  (let [[tag & args] instruction-v]
+  [trans inst record instruction-acc]
+  (let [[tag & args] inst]
     (case tag
 
-      ;; ═══════════════════════════════════════════
-      ;; 开始事务
-      ;; ═══════════════════════════════════════════
       :begin-transaction
-      (let [[kind kwargs] args]
-        (when transaction
-          (throw (ex-info "transaction already active"
-                          {:active     (:kind transaction)
-                           :attempting kind})))
-        (when-not (keyword? kind)
-          (throw (ex-info "invalid transaction kind"
-                          {:kind kind})))
-        (let [t (or (transaction kind)
-                    (throw (ex-info "unknown transaction kind"
-                                    {:kind kind})))
-              result (begin t kwargs record)]
-          {:new-transaction {:kind kind :instance t}
-           :result          (or result {:fx []})}))
+      (let [[k kwargs] args]
+        (when trans
+          (throw (ex-info "trans already active"
+                          {:active     (kind trans)
+                           :attempting k})))
+        (when-not (keyword? k)
+          (throw (ex-info "invalid trans k"
+                          {:kind k})))
+        (let [t (or (transaction k) (throw (ex-info "unknown trans k" {:kind k})))]
+          (begin t kwargs record)))
 
-      ;; ═══════════════════════════════════════════
-      ;; 事务内操作
-      ;; ═══════════════════════════════════════════
       :transaction-operation
-      (let [[kind op-kind kwargs] args]
-        (when-not transaction
-          (throw (ex-info "no active transaction"
-                          {:operation op-kind})))
-        (when-not (= kind (:kind transaction))
-          (throw (ex-info "transaction kind mismatch"
-                          {:active     (:kind transaction)
-                           :attempting kind})))
-        (let [result (operate (:instance transaction)
-                              (assoc kwargs :op-kind op-kind)
-                              record)]
-          {:new-transaction transaction
-           :result          (or result {:fx []})}))
-
-      ;; ═══════════════════════════════════════════
-      ;; 提交
-      ;; ═══════════════════════════════════════════
-      :commit-transaction
-      (let [[kind kwargs] args]
-        (when-not transaction
-          (throw (ex-info "no active transaction"
-                          {:operation :commit})))
-        (when-not (= kind (:kind transaction))
-          (throw (ex-info "transaction kind mismatch"
-                          {:active     (:kind transaction)
-                           :attempting kind})))
+      (let [[k op-kind kwargs] args]
+        (when-not trans
+          (throw (ex-info "no active trans" {:operation op-kind})))
+        (when-not (= k (kind trans))
+          (throw (ex-info "trans k mismatch"
+                          {:active     (kind trans)
+                           :attempting k})))
         (try
-          (let [result (commit (:instance transaction) kwargs record)]
-            {:new-transaction nil
-             :result          (or result {:fx []})})
+          (operate trans
+                   op-kind
+                   kwargs
+                   record)
           (catch Throwable e
-            ;; 提交失败——尝试回滚
-            (try
-              (rollback (:instance transaction) {} record)
-              (catch Throwable _))
+            (try (rollback trans
+                           {:instructions instruction-acc
+                            :status :error
+                            :instruction inst} record)
+                 (catch Throwable _))
             (throw e))))
 
-      ;; ═══════════════════════════════════════════
-      ;; 回滚
-      ;; ═══════════════════════════════════════════
-      :rollback-transaction
-      (let [[kind kwargs] args]
-        (if-not transaction
-          ;; 无活跃事务——幂等
-          {:new-transaction nil
-           :result          {:fx []}}
-          (do
-            (when-not (= kind (:kind transaction))
-              (throw (ex-info "transaction kind mismatch"
-                              {:active     (:kind transaction)
-                               :attempting kind})))
-            (let [result (rollback (:instance transaction) kwargs record)]
-              {:new-transaction nil
-               :result          (or result {:fx []})}))))
+      :commit-transaction
+      (let [[k kwargs] args]
+        (when-not trans
+          (throw (ex-info "no active trans" {:operation :commit})))
+        (when-not (= k (kind trans))
+          (throw (ex-info "trans k mismatch"
+                          {:active     (kind trans)
+                           :attempting k})))
+        (try
+          [nil (commit trans kwargs record)]
+          (catch Throwable e
+            (try (rollback trans {:instructions instruction-acc
+                                  :status :error
+                                  :instruction inst} record)
+                 (catch Throwable _))
+            (throw e))))
 
-      ;; ═══════════════════════════════════════════
-      ;; 未知指令
-      ;; ═══════════════════════════════════════════
-      (throw (ex-info "unknown transaction instruction"
-                      {:instruction instruction-v})))))
+      :rollback-transaction
+      (let [[k] args]
+        (if-not trans
+          ;; 无活跃事务——幂等
+          [nil {:fx []}]
+          (do
+            (when-not (= k (kind trans))
+              (throw (ex-info "trans kind mismatch"
+                              {:active     (kind trans)
+                               :attempting k})))
+            [nil (rollback trans {:instructions instruction-acc
+                                  :status nil
+                                  :instruction inst} record)])))
+
+      ;; ── 未知指令 ──────────────────────────────────
+      (throw (ex-info "unknown trans instruction"
+                      {:instruction inst})))))
 
 (defn execute-instructions
   "对指令序列循环执行——事务状态 + record 在指令间传递。
@@ -175,24 +136,26 @@
    错误处理：
      任何一条指令抛异常——整体抛——外层不合并 fx。
      天然事务性：要么全部成功，要么全部不生效。"
-  [transaction instructions record]
+  [transaction instructions record ins-acc]
   (loop [trans     transaction
          remaining instructions
+         instruction-acc ins-acc
          current   record
          fx-acc    []]
     (if (seq remaining)
       ;; ── 完成——返回
-      {:new-transaction trans
-       :result          {:record current
-                         :fx     fx-acc}}
+      [trans
+       {:record current
+        :fx     fx-acc}]
       ;; ── 处理下一条
       (let [instruction (first remaining)
-            {:keys [new-transaction result]}
-            (execute-instruction trans instruction current)
+            [new-transaction result]
+            (execute-instruction trans instruction current instruction-acc)
             result-record (or (:record result) {})
             result-fx     (or (:fx result) [])]
         (recur new-transaction
                (rest remaining)
+               (conj instruction-acc instruction)
                (merge current result-record)
                (into fx-acc result-fx))))))
 
@@ -203,11 +166,13 @@
      (let [instructions (get-in context [:effects :transaction])]
        (if (seq instructions)
          (let [transaction (get context (transaction-key))
+               inst-acc (get context (transaction-instructions-key) [])
                record (get-in context [:effects :record])
-               {:keys [new-transaction result]} (execute-instructions transaction instructions record)
+               [new-transaction result new-inst-acc] (execute-instructions transaction instructions record inst-acc)
                {:keys [record fx]} result]
            (-> context
                (assoc (transaction-key) new-transaction)
+               (assoc (transaction-instructions-key) new-inst-acc)
                (update :effects
                        (fn [eff]
                          (cond-> eff
