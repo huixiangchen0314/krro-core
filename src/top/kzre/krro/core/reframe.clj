@@ -279,11 +279,12 @@
           :fx
           (let [cofx   (get-in ctx-before [:coeffects])
                 result (handler-fn cofx event-v)
-                {:keys [record fx dispatch dispatch-n]} (if (map? result) result {:record result})
+                {:keys [record fx dispatch dispatch-n]
+                 :as result-map} (if (map? result) result {:record result})
                 old-record   (get-in ctx-before [:coeffects :record])
                 final-record (or record old-record)]
             (-> ctx-before
-                (assoc :effects result)
+                (assoc :effects result-map)
                 (assoc-in [:effects :record] final-record)
                 (assoc-in [:effects :fx] (or fx []))
                 (cond-> (some? dispatch)   (assoc-in [:effects :dispatch] dispatch)
