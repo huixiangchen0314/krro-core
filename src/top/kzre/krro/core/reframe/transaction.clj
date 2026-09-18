@@ -136,10 +136,10 @@
    错误处理：
      任何一条指令抛异常——整体抛——外层不合并 fx。
      天然事务性：要么全部成功，要么全部不生效。"
-  [transaction instructions record ins-acc]
+  [transaction instructions record inst-acc]
   (loop [trans     transaction
          remaining instructions
-         instruction-acc ins-acc
+         instruction-acc inst-acc
          current   record
          fx-acc    []]
     (if (seq remaining)
@@ -155,7 +155,10 @@
             result-fx     (or (:fx result) [])]
         (recur new-transaction
                (rest remaining)
-               (conj instruction-acc instruction)
+               ;; 事务结束（commit/rollback）→ 清空；活跃中 → 累积
+               (if (some? new-transaction)
+                 (conj instruction-acc instruction)
+                 [])
                (merge current result-record)
                (into fx-acc result-fx))))))
 
@@ -165,19 +168,27 @@
    (fn [context]
      (let [instructions (get-in context [:effects :transaction])]
        (if (seq instructions)
-         (let [transaction (get context (transaction-key))
-               inst-acc (get context (transaction-instructions-key) [])
-               record (get-in context [:effects :record])
-               [new-transaction result new-inst-acc] (execute-instructions transaction instructions record inst-acc)
-               {:keys [record fx]} result]
+         (let [record       (get-in context [:effects :record])
+               ;; 事务状态从 record 读
+               transaction  (get record (transaction-key))
+               inst-acc     (get record (transaction-instructions-key) [])
+               [new-transaction result new-inst-acc]
+               (execute-instructions transaction instructions record inst-acc)
+               {:keys [record fx dispatch dispatch-n]} result
+               dispatches   (cond-> (vec dispatch-n)
+                                    dispatch (conj dispatch))]
            (-> context
-               (assoc (transaction-key) new-transaction)
-               (assoc (transaction-instructions-key) new-inst-acc)
                (update :effects
                        (fn [eff]
                          (cond-> eff
-                                 record           (assoc :record (merge (:record eff) record))
-                                 (seq fx)         (update :fx (fnil into []) fx)
-                                 )))))
-         context)
-       ))})
+                                 true
+                                 (assoc :record
+                                        (-> (:record eff)
+                                            (merge record)
+                                            ;; 事务状态写回 record
+                                            (assoc (transaction-key) new-transaction)
+                                            (assoc (transaction-instructions-key) new-inst-acc)))
+                                 (seq fx)       (update :fx (fnil into []) fx)
+                                 (seq dispatches)
+                                 (update :dispatch-n (fnil into []) dispatches))))))
+         context)))})
