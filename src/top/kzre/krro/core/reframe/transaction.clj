@@ -1,5 +1,6 @@
 (ns top.kzre.krro.core.reframe.transaction
-  "reframe 事务插件")
+  "reframe 事务插件"
+  (:require [top.kzre.krro.core.reframe.util :as util]))
 
 (defn begin-transaction
   "构造事务创建指令"
@@ -121,46 +122,26 @@
                       {:instruction inst})))))
 
 (defn execute-instructions
-  "对指令序列循环执行——事务状态 + record 在指令间传递。
-
-   输入：
-     transaction   —— 当前事务状态（nil 或 {:kind ... :instance ...}）
-     instructions  —— 指令序列
-     record        —— 当前 db 片段
-
-   返回：
-     {:new-transaction <事务状态或 nil>
-      :result          {:record <合并后的 db 片段>
-                        :fx     <所有 fx 拼接>}}
-
-   错误处理：
-     任何一条指令抛异常——整体抛——外层不合并 fx。
-     天然事务性：要么全部成功，要么全部不生效。"
-  [transaction instructions record inst-acc]
-  (loop [trans     transaction
-         remaining instructions
-         instruction-acc inst-acc
-         current   record
-         fx-acc    []]
-    (if (seq remaining)
-      ;; ── 完成——返回
-      [trans
-       {:record current
-        :fx     fx-acc}]
-      ;; ── 处理下一条
+  [transaction instructions record ins-acc]
+  (loop [trans           transaction
+         remaining       instructions
+         instruction-acc ins-acc
+         current         record
+         effects-acc     {:fx []}]
+    (if-not (seq remaining)
+      [trans (assoc effects-acc :record current)]
       (let [instruction (first remaining)
             [new-transaction result]
             (execute-instruction trans instruction current instruction-acc)
-            result-record (or (:record result) {})
-            result-fx     (or (:fx result) [])]
+            ;; result 里可能有 :record / :fx / :dispatch / :dispatch-n
+            effects' (util/merge-effects effects-acc result)]
         (recur new-transaction
                (rest remaining)
-               ;; 事务结束（commit/rollback）→ 清空；活跃中 → 累积
                (if (some? new-transaction)
                  (conj instruction-acc instruction)
                  [])
-               (merge current result-record)
-               (into fx-acc result-fx))))))
+               (:record effects')
+               (dissoc effects' :record))))))
 
 (defn transaction-interceptor
   []
@@ -169,26 +150,14 @@
      (let [instructions (get-in context [:effects :transaction])]
        (if (seq instructions)
          (let [record       (get-in context [:effects :record])
-               ;; 事务状态从 record 读
                transaction  (get record (transaction-key))
                inst-acc     (get record (transaction-instructions-key) [])
-               [new-transaction result new-inst-acc]
+               [new-transaction trans-effects new-inst-acc]
                (execute-instructions transaction instructions record inst-acc)
-               {:keys [record fx dispatch dispatch-n]} result
-               dispatches   (cond-> (vec dispatch-n)
-                                    dispatch (conj dispatch))]
+               ;; 事务状态写回 record
+               trans-effects' (-> trans-effects
+                                 (assoc-in [:record (transaction-key)] new-transaction)
+                                 (assoc-in [:record (transaction-instructions-key)] new-inst-acc))]
            (-> context
-               (update :effects
-                       (fn [eff]
-                         (cond-> eff
-                                 true
-                                 (assoc :record
-                                        (-> (:record eff)
-                                            (merge record)
-                                            ;; 事务状态写回 record
-                                            (assoc (transaction-key) new-transaction)
-                                            (assoc (transaction-instructions-key) new-inst-acc)))
-                                 (seq fx)       (update :fx (fnil into []) fx)
-                                 (seq dispatches)
-                                 (update :dispatch-n (fnil into []) dispatches))))))
+               (update :effects util/merge-effects trans-effects')))
          context)))})
