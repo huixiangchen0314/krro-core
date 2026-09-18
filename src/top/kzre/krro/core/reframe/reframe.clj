@@ -6,7 +6,8 @@
 
    底层响应式原语使用 top.kzre.krro.core.util.signal。"
   (:require [clojure.core.async :as async :refer [go <! >! chan go-loop close!]]
-            [top.kzre.krro.core.util.signal :as sig]))
+            [top.kzre.krro.core.util.signal :as sig]
+            [top.kzre.krro.core.message :as msg]))
 
 (declare subscribe execute-fx invalidate-record-signal process-event dispatch)
 
@@ -201,15 +202,20 @@
   (let [event-chan (chan 64)
         stop-loop  (go-loop []
                      (when-let [event-v (<! event-chan)]
-                       (process-event app-id event-v)
+                       (try
+                         (process-event app-id event-v)
+                         (catch Throwable t
+                           (msg/error t "process-event failed"
+                                      {:app-id app-id
+                                       :record-id record-id
+                                       :event event-v})))
                        (recur)))]
     (swap! stores assoc-in [app-id record-id]
            {:getter getter :setter setter :event-chan event-chan :stop-loop stop-loop})
-    ;; 清理函数：按顺序做三件事
     #(do
-       (close! event-chan)                          ; 停止接收新事件
-       (dispose-record-signals! app-id record-id)   ; 清理 signal
-       (swap! stores update app-id dissoc record-id)))) ; 移除 store
+       (close! event-chan)
+       (dispose-record-signals! app-id record-id)
+       (swap! stores update app-id dissoc record-id))))
 
 ;; ═══════════════════════════════════════
 ;; 订阅查询（使用 sig/signal）
@@ -334,17 +340,23 @@
             event-v (get-in ctx-before [:coeffects :event])
             ch      (handler cofx event-v)]
         (go
-          (let [result           (<! ch)
-                record-result    (if (map? result) (:record result) result)
-                fx               (when (map? result) (:fx result))
-                dispatch-event   (when (map? result) (:dispatch result))
-                dispatch-n-events (when (map? result) (:dispatch-n result))]
-            ((:setter store) record-id record-result)
-            (when (seq fx) (execute-fx app-id fx))
-            (when dispatch-event (dispatch app-id dispatch-event))
-            (when dispatch-n-events (doseq [ev dispatch-n-events] (dispatch app-id ev)))
-            (invalidate-record-signal app-id record-id)
-            (notify-listeners app-id record-id)))))))
+          (try
+            (let [result            (<! ch)
+                  record-result     (if (map? result) (:record result) result)
+                  fx                (when (map? result) (:fx result))
+                  dispatch-event    (when (map? result) (:dispatch result))
+                  dispatch-n-events (when (map? result) (:dispatch-n result))]
+              ((:setter store) record-id record-result)
+              (when (seq fx) (execute-fx app-id fx))
+              (when dispatch-event   (dispatch app-id dispatch-event))
+              (when dispatch-n-events (doseq [ev dispatch-n-events] (dispatch app-id ev)))
+              (invalidate-record-signal app-id record-id)
+              (notify-listeners app-id record-id))
+            (catch Throwable t
+              (msg/error t "co-handler failed"
+                         " app-id=" app-id
+                         " record-id=" record-id
+                         " event=" event-v))))))))
 
 (defn- invalidate-record-signal [app-id record-id]
   (when-let [sig (get-in @record-root-signals [app-id record-id])]
