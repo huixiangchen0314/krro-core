@@ -18,7 +18,7 @@
              (vec (take-last n buf))
              buf))))
 
-(defn coerce
+(defn- coerce
   "把参数转成可安全拼接的字符串。
    非字符串用 pr-str + try/catch——防循环引用 / 栈溢出。
    宏内部使用——不作为公共 API。"
@@ -30,7 +30,7 @@
       (catch Throwable _
         (str "#<unprintable:" (.getName (class x)) ">")))))
 
-(defn push-message [type content]
+(defn- push-message [type content]
   (let [entry {:content content :type type}]
     (swap! messages
            (fn [buf]
@@ -41,11 +41,11 @@
                  (vec (subvec new-buf (- n max-messages)))
                  new-buf))))))
 
-(defmacro message [& parts]
-  `(push-message :info (str ~@(map (fn [p] `(coerce ~p)) parts))))
+(defn message [& parts]
+  (push-message :info (apply str (map coerce parts))))
 
-(defmacro warn [& parts]
-  `(push-message :warn (str ~@(map (fn [p] `(coerce ~p)) parts))))
+(defn warn [& parts]
+  (push-message :warn (apply str (map coerce parts))))
 
-(defmacro error [& parts]
-  `(push-message :error (str ~@(map (fn [p] `(coerce ~p)) parts))))
+(defn error [& parts]
+  (push-message :error (apply str (map coerce parts))))

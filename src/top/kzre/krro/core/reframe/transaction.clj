@@ -31,10 +31,10 @@
 
 (defonce ^:private transaction-registry (atom {}))
 
-(defn transactions []
+(defn- transactions []
   @transaction-registry)
 
-(defn transaction [trans-kind]
+(defn- transaction [trans-kind]
   (get (transactions) trans-kind))
 
 (defn reg-transaction [kind trans]
@@ -121,7 +121,7 @@
       (throw (ex-info "unknown trans instruction"
                       {:instruction inst})))))
 
-(defn execute-instructions
+(defn- execute-instructions
   [transaction instructions record ins-acc]
   (loop [trans           transaction
          remaining       instructions
