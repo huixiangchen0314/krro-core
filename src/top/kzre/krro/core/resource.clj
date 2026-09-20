@@ -6,7 +6,6 @@
      encoder: (fn [obj ctx] -> proxy-map)
      decoder: (fn [proxy-map] -> obj)
    pred 可以是函数或 Class，若为 Class 则自动优化为 instance? 检查并建立快速索引。"
-  (:require [top.kzre.krro.core.message :as msg])
   (:import (clojure.lang IDeref IPersistentMap IRecord)
            (java.net URI)
            (java.util Date UUID)))
@@ -20,60 +19,37 @@
        (instance? IPersistentMap x)))
 
 ;; ── 编解码注册表 ──────────────────────────────────
-(defonce codec-registry (atom {}))
-(defonce class-codec-map (atom {}))   ;; Class → type-kw 快速索引
+(defonce ^:private codec-registry (atom {}))
+(defonce ^:private class-type-kw-atom (atom {}))   ;; Class → type-kw 快速索引
 
 (defn reg-resource
   "注册一个编解码器对。type-kw 为 :krro/type 的值。
-   pred:   可以是函数 (fn [obj] -> boolean?) 或 Class（自动转为 instance? 检查）
+   pred-or-clz:   可以是函数 (fn [obj] -> boolean?) 或 Class（自动转为 instance? 检查）
    encoder: (fn [obj ctx] -> proxy-map)
    decoder: (fn [proxy-map] -> obj)"
-  [type-kw pred encoder decoder]
+  [type-kw pred-or-clz encoder decoder]
   {:pre [(keyword? type-kw)
-         (or (ifn? pred) (class? pred))   ;; 允许 Class 类型
+         (or (ifn? pred-or-clz) (class? pred-or-clz))   ;; 允许 Class 类型
          (ifn? encoder)
          (ifn? decoder)]}
-  (let [;; 若 pred 是 Class，生成等效的 instance? 函数
-        pred-fn (if (class? pred)
-                  (fn [obj] (instance? pred obj))
-                  pred)
+  (let [;; 若 pred-or-clz 是 Class，生成等效的 instance? 函数
+        pred-fn (if (class? pred-or-clz)
+                  (fn [obj] (instance? pred-or-clz obj))
+                  pred-or-clz)
         ;; 自动包装旧式单参数编码器
         wrap-encoder (fn [f]
                        (if (and f (= (count (first (:arglists (meta f)))) 1))
                          (fn [obj _ctx] (f obj))
                          f))]
-    (swap! codec-registry assoc type-kw {:encoder (wrap-encoder encoder)
-                                         :decoder decoder
-                                         :pred pred-fn})
-    ;; 若 pred 是 Class，则建立 Class → type-kw 的快速索引
-    (when (class? pred)
-      (swap! class-codec-map assoc pred type-kw))))
+    (swap! codec-registry assoc type-kw
+           {:encoder (wrap-encoder encoder)
+            :decoder decoder
+            :pred pred-fn})
+    ;; 若 pred-or-clz 是 Class，则建立 Class → type-kw 的快速索引
+    (when (class? pred-or-clz)
+      (swap! class-type-kw-atom assoc pred-or-clz type-kw))))
 
-(defn register-codec!
-  "注册一个编解码器对。type-kw 为 :krro/type 的值。
-   pred:   可以是函数 (fn [obj] -> boolean?) 或 Class（自动转为 instance? 检查）
-   encoder: (fn [obj ctx] -> proxy-map)
-   decoder: (fn [proxy-map] -> obj)"
-  [type-kw pred encoder decoder]
-  {:pre [(keyword? type-kw)
-         (or (ifn? pred) (class? pred))   ;; 允许 Class 类型
-         (ifn? encoder)
-         (ifn? decoder)]}
-  (let [;; 若 pred 是 Class，生成等效的 instance? 函数
-        pred-fn (if (class? pred)
-                  (fn [obj] (instance? pred obj))
-                  pred)
-        ;; 自动包装旧式单参数编码器
-        wrap-encoder (fn [f]
-                       (if (and f (= (count (first (:arglists (meta f)))) 1))
-                         (fn [obj _ctx] (f obj))
-                         f))]
-    (swap! codec-registry assoc type-kw {:encoder (wrap-encoder encoder)
-                                         :decoder decoder
-                                         :pred pred-fn})
-    ;; 若 pred 是 Class，则建立 Class → type-kw 的快速索引
-    (when (class? pred)
-      (swap! class-codec-map assoc pred type-kw))))
+(def ^:deprecated register-codec! reg-resource)
 
 ;; ── 内部查找编码器（利用 Class 快速索引） ────────────────────────────────
 (defn- try-encode-object
@@ -81,46 +57,21 @@
    优先通过对象 class 快速查找编码器；若快速路径未成功，则遍历所有 pred 函数作为回退。"
   [obj ctx]
   (or
-    ;; 快速路径：直接通过 class 找到编码器并尝试
-    (when-let [type-kw (get @class-codec-map (class obj))]
-      (when-let [{:keys [encoder]} (get @codec-registry type-kw)]
-        (try
+    (let [class-type-kw @class-type-kw-atom]
+      (when-let [type-kw (get class-type-kw (class obj))]
+        (when-let [{:keys [encoder]} (get @codec-registry type-kw)]
           (let [encoded (encoder obj ctx)]
             (when (and (primitive-map? encoded) (= (:krro/type encoded) type-kw))
-              encoded))
-          (catch Exception _ nil))))
-    ;; 慢速路径：遍历所有注册的 pred 函数作为回退
-    (some (fn [[type-kw {:keys [pred encoder]}]]
-            (when (pred obj)
-              (try
+              encoded)))))
+    (let [entries @codec-registry]
+      (some (fn [[type-kw {:keys [pred encoder]}]]
+              (when (pred obj)
                 (let [encoded (encoder obj ctx)]
                   (when (and (primitive-map? encoded) (= (:krro/type encoded) type-kw))
-                    encoded))
-                (catch Exception _ nil))))
-          @codec-registry)))
+                    encoded))))
+            entries))))
 
-(defn encode-object
-  "尝试为给定对象自动查找并应用编码器，传递上下文 ctx。"
-  [obj ctx]
-  (try-encode-object obj ctx))
 
-;; ── 编码（自顶向下，支持显式类型和上下文） ─────────────────
-(defn encode-with-type
-  "使用指定的 type-kw 调用对应编码器，传递上下文 ctx。"
-  [obj type-kw ctx]
-  (if-let [{:keys [encoder]} (get @codec-registry type-kw)]
-    (try
-      (let [encoded (encoder obj ctx)]
-        (if (and (primitive-map? encoded) (= (:krro/type encoded) type-kw))
-          encoded
-          (do (msg/error (str "Encoder for " type-kw " did not return a valid proxy map"))
-              obj)))
-      (catch Exception e
-        (msg/error (str "Encoding failed for type " type-kw ": " (.getMessage e)))
-        obj))
-    (do
-      (msg/error (str "No encoder registered for type " type-kw))
-      obj)))
 
 (defn encode
   "自顶向下递归编码。未注册编码器的非标量对象将立即抛出异常。
@@ -150,7 +101,8 @@
      :else
      (if-let [encoded (try-encode-object data ctx)]
        (encode encoded ctx)   ;; 递归编码代理 map
-       (throw (ex-info (str "No encoder found for object: " (pr-str data))
+       (throw (ex-info (str "No encoder found for object: " (pr-str data)
+                           "\n all codec"  (pr-str @class-type-kw-atom))
                        {:object data
                         :type   (type data)}))))))
 
@@ -162,10 +114,7 @@
    (if (pos? depth)
      (if-let [type-kw (:krro/type m)]
        (if-let [{:keys [decoder]} (get @codec-registry type-kw)]
-         (let [result (try (decoder m)
-                           (catch Exception e
-                             (msg/error (str "Decode failed for type " type-kw ": " (.getMessage e)))
-                             m))]
+         (let [result (decoder m)]
            (if (and (primitive-map? result) (:krro/type result))
              (decode* result (dec depth))
              result))

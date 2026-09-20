@@ -1,17 +1,9 @@
 (ns top.kzre.krro.core.reframe.core
   (:require
-   [top.kzre.krro.core.reframe.reframe :as rf]))
+   [top.kzre.krro.core.util.re-export :refer [re-export]]))
 
-
-(def path rf/path)
-(def inject-cofx rf/inject-cofx)
-(def reg-event-record rf/reg-event-record)
-(def reg-event-fx rf/reg-event-fx)
-(def reg-event-ctx rf/reg-event-ctx)
-(def reg-event-co rf/reg-event-co)
-(def reg-fx rf/reg-fx)
-(def reg-sub rf/reg-sub)
-(def reg-store rf/reg-store) ; 移除 store
-(def subscribe rf/subscribe)
-(def on-record-change rf/on-record-change)
-(def dispatch rf/dispatch)
+(re-export
+  [top.kzre.krro.core.reframe.reframe
+   :refer [path inject-cofx reg-event-record reg-event-fx reg-sub
+           reg-event-ctx reg-event-co reg-fx reg-store subscribe
+           on-record-change dispatch]])

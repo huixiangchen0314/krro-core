@@ -5,9 +5,11 @@
    每个 record 拥有独立的 store 与反应式追踪。
 
    底层响应式原语使用 top.kzre.krro.core.util.signal。"
-  (:require [clojure.core.async :as async :refer [go <! >! chan go-loop close!]]
-            [top.kzre.krro.core.util.signal :as sig]
-            [top.kzre.krro.core.message :as msg]))
+  (:require
+    [clojure.core.async :as async :refer [<! chan close! go go-loop]]
+    [top.kzre.krro.core.message :as msg]
+    [top.kzre.krro.core.util.signal :as sig]
+    [top.kzre.krro.core.variable :as variable]))
 
 (declare subscribe execute-fx invalidate-record-signal process-event dispatch)
 
@@ -15,25 +17,12 @@
 ;; 内部状态
 ;; ═══════════════════════════════════════
 
-;; 事件处理器按 app-id 隔离：{app-id {event-id {:handler fn :interceptors [...] :handler-type ...}}}
 (def ^:private event-handlers (atom {}))
-
-;; 副作用按 app-id 隔离：{app-id {fx-id handler}}
 (def ^:private fx-handlers        (atom {}))
-
-;; 订阅定义按 app-id 隔离：{app-id {query-id {:inputs [...] :compute-fn fn}}}
 (def ^:private subscriptions      (atom {}))
-
-;; stores 结构：{app-id {record-id {:getter fn :setter fn :event-chan chan :stop-loop ...}}}
 (def ^:private stores             (atom {}))
-
-;; 监听器按 app-id + record-id 隔离：{app-id {record-id {listener-id fn}}}
 (def ^:private store-listeners    (atom {}))
-
-;; signal 缓存：{[app-id record-id query-id params] Signal}
 (def ^:private signal-cache       (atom {}))
-
-;; 每个 record 的根 signal：{app-id {record-id root-signal}}
 (def ^:private record-root-signals (atom {}))
 
 ;; ═══════════════════════════════════════
@@ -41,7 +30,8 @@
 ;; ═══════════════════════════════════════
 
 (defn- get-record-root-signal
-  "获取或创建 record 根 signal。使用 sig/source。"
+  "获取或创建 record 根 signal。使用 sig/source。
+   注意：Signal 未实现 IObj，不能挂 metadata，元信息保存在 record-root-signals / signal-cache 的 key 中。"
   [app-id record-id]
   (let [cache-key [app-id record-id :root]
         existing  (get-in @signal-cache cache-key)]
@@ -52,11 +42,7 @@
                 (throw (ex-info (str "Store not found for app-id " app-id
                                      ", record-id " record-id)
                                 {:app-id app-id :record-id record-id})))
-            s (-> (sig/source (fn [] ((:getter store) record-id)))
-                  (vary-meta assoc
-                             :app-id    app-id
-                             :record-id record-id
-                             :query-id  :root))]
+            s (sig/source (fn [] ((:getter store) record-id)))]
         (swap! record-root-signals assoc-in [app-id record-id] s)
         (swap! signal-cache assoc-in cache-key s)
         s))))
@@ -85,22 +71,16 @@
 
 (defn- create-signal
   "创建订阅 signal。核心是 sig/signal，params 通过闭包捕获。
-   返回的 Signal 带 metadata（app-id / record-id / query-id / params）。"
+   注意：Signal 未实现 IObj，不挂 metadata；元信息通过 cache-key 索引。"
   [app-id record-id query-id params compute-fn inputs]
-  (let [input-signals (mapv #(resolve-input-descriptor app-id record-id %) inputs)
-        ;; 关键：params 用闭包捕获，不需要 Signal 字段携带
-        s (sig/signal
-            (fn [& input-vals]
-              (apply compute-fn (concat input-vals params)))
-            input-signals)]
-    (vary-meta s assoc
-               :app-id    app-id
-               :record-id record-id
-               :query-id  query-id
-               :params    params)))
+  (let [input-signals (mapv #(resolve-input-descriptor app-id record-id %) inputs)]
+    (sig/signal
+      (fn [& input-vals]
+        (apply compute-fn (concat input-vals params)))
+      input-signals)))
 
 ;; ═══════════════════════════════════════
-;; 拦截器工厂（不变）
+;; 拦截器工厂
 ;; ═══════════════════════════════════════
 
 (defn path
@@ -124,7 +104,7 @@
                (assoc-in context [:coeffects id] val)))})
 
 ;; ═══════════════════════════════════════
-;; 注册 API（不变）
+;; 注册 API
 ;; ═══════════════════════════════════════
 
 (defn- register-event [app-id event-id interceptors handler handler-type]
@@ -208,7 +188,9 @@
                            (msg/error t "process-event failed"
                                       {:app-id app-id
                                        :record-id record-id
-                                       :event event-v})))
+                                       :event event-v})
+                           (when variable/*debug*
+                             (throw t))))
                        (recur)))]
     (swap! stores assoc-in [app-id record-id]
            {:getter getter :setter setter :event-chan event-chan :stop-loop stop-loop})
@@ -218,7 +200,7 @@
        (swap! stores update app-id dissoc record-id))))
 
 ;; ═══════════════════════════════════════
-;; 订阅查询（使用 sig/signal）
+;; 订阅查询
 ;; ═══════════════════════════════════════
 
 (defn subscribe
@@ -242,7 +224,7 @@
           new-sig)))))
 
 ;; ═══════════════════════════════════════
-;; 存储变化监听（不变）
+;; 存储变化监听
 ;; ═══════════════════════════════════════
 
 (defn on-record-change
@@ -256,7 +238,7 @@
     (doseq [cb (vals listeners)] (cb))))
 
 ;; ═══════════════════════════════════════
-;; 事件处理引擎（不变）
+;; 事件处理引擎
 ;; ═══════════════════════════════════════
 
 (defn- base-context [app-id event-v]
@@ -356,11 +338,12 @@
               (msg/error t "co-handler failed"
                          " app-id=" app-id
                          " record-id=" record-id
-                         " event=" event-v))))))))
+                         " event=" event-v)
+              (throw t))))))))
 
 (defn- invalidate-record-signal [app-id record-id]
   (when-let [sig (get-in @record-root-signals [app-id record-id])]
-    (sig/mark-dirty! sig)))    ; ← 委托给 signal 库
+    (sig/mark-dirty! sig)))
 
 (defn- execute-fx [app-id fx-vec]
   (doseq [[fx-id & args] fx-vec]
@@ -373,7 +356,7 @@
                       {:app-id app-id :fx-id fx-id})))))
 
 ;; ═══════════════════════════════════════
-;; 派发（不变）
+;; 派发
 ;; ═══════════════════════════════════════
 
 (defn dispatch
