@@ -43,7 +43,24 @@
   (swap! transaction-registry assoc kind trans))
 
 (defonce ^:private transaction-key* ::transaction)
-(defn transaction-key [] transaction-key*)
+(defn- transaction-key [] transaction-key*)
+
+(defn current
+  "返回当前活跃的事务"
+  [cofx-or-record]
+  (or
+    (get-in cofx-or-record [:record (transaction-key)])
+    (get cofx-or-record (transaction-key))))
+
+(defn active?
+  "判断当前活跃的事务类型是否是 kind"
+  [cofx k]
+  (boolean
+    (when-let [tx (current cofx)]
+      (= (kind tx) k))
+    ))
+
+
 
 (defonce ^:private transaction-instructions-key* ::transaction-instructions)
 (defn transaction-instructions-key [] transaction-instructions-key*)
