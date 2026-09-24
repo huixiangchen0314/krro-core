@@ -120,6 +120,12 @@ public final class SerialExecutor implements AsyncExecutor, AutoCloseable {
     // ═══════════════════════════════════════════════
 
     /**
+     * 获取执行工作线程id
+     */
+    public long getTheadId(){
+        return this.worker.getId();
+    }
+    /**
      * 提交一个有返回值的任务。任务在 worker 线程上执行。
      *
      * <p>返回的 future：
