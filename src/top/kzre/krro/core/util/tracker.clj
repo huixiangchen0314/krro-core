@@ -10,7 +10,11 @@
   (:import (top.kzre.krro.core.util Tracker)
            (java.util.function Consumer)))
 
-(defn auto-closeable-tracker []
+(defn auto-closeable-tracker
+  "创建释放动作为 AutoCloseable.close() 的追踪器。
+  释放抛出的异常被吞掉，不掩盖调用方原始异常。
+  严格接口契约——资源必须实现 AutoCloseable。"
+  []
   (Tracker/autoCloseableTracker))
 
 (defn tracker
@@ -22,6 +26,18 @@
   (Tracker. (reify Consumer
               (accept [_ r] (release-fn r)))))
 
+(defn closeable-tracker
+  "创建释放动作为 (.close resource) 的追踪器。
+  宽松契约——资源只需有 close 方法，不要求实现 AutoCloseable。
+  释放抛出的异常被吞掉，不掩盖调用方原始异常。"
+  []
+  (tracker
+    (fn [resource]
+      (try
+        (when resource
+          (.close resource))
+        (catch Throwable _
+          )))))
 (defn track!
   "登记资源。已关闭则立即释放。返回 resource 本身；nil 不做任何事。"
   [^Tracker t resource]

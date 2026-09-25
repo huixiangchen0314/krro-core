@@ -32,7 +32,7 @@ import java.util.function.Consumer;
  *
  * @param <T> 资源类型
  */
-public final class Tracker<T> {
+public final class Tracker<T> implements AutoCloseable{
 
     /** 不可变快照。CAS 比较引用身份。 */
     private static final class State<T> {
@@ -109,6 +109,7 @@ public final class Tracker<T> {
      *
      * <p>单个资源释放抛出的异常被吞掉，不掩盖调用方的原始异常。
      */
+    @Override
     public void close() {
         while (true) {
             State<T> s = state.get();
