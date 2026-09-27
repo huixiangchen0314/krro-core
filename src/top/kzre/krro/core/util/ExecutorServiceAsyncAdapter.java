@@ -19,4 +19,8 @@ public final class ExecutorServiceAsyncAdapter implements AsyncExecutor {
             catch (Exception e) { throw new CompletionException(e); }
         }, service);
     }
+
+    public ExecutorService getExecutorService() {
+        return service;
+    }
 }
