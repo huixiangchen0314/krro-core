@@ -24,11 +24,16 @@
   所有 Frame 的创建与销毁都通过分割操作完成。"
  (window-id [this] "返回 Window 的唯一标识。")
  (current-frame [this] "返回当前拥有焦点的 Frame。")
- (set-current-frame! [this frame] "设置当前 Frame 为焦点。")
+ (set-current-frame! [this frame-id] "设置当前 Frame 为焦点。")
  (layout-desc [this]
   "返回布局描述向量树
  叶子节点：[frame-id-id]
  分割节点：[direction props-map child1 child2 ...]")
+ (set-split-ratio! [this path ratio]
+  "设置布局树中 path 指向的 split 节点的 :ratio。
+   path 是 split 节点在 layout-desc 中的路径（如 [2] 表示根节点第 0 个子节点）。
+   ratio 是第一个子节点的占比，必须落在 (0,1)。
+   实现负责失效 AABB 缓存。")
  (split-frame! [this direction opts]
   "在指定 Frame 的视觉邻接方向上创建一个新的平级 Frame，并更新布局树。
    direction 为 :vertical 或 :horizontal。

@@ -20,11 +20,15 @@
     (when-let [fid @current-frame-id-atom]
       (get @frames-atom fid)))
   (set-current-frame! [this frame-id]
-    (let [old-frame (win/current-frame this)
-          new-frame (win/get-frame this frame-id)]
-      (when (not= frame-id (frame/frame-id old-frame))
+    (when-not (win/get-frame this frame-id)
+      (throw (ex-info "Unknown frame-id"
+                      {:frame-id frame-id
+                       :window-id (win/window-id this)})))
+    (let [old-frame-id (some-> (win/current-frame this) frame/frame-id)]
+      (when (not= frame-id old-frame-id)
         (reset! current-frame-id-atom frame-id)
-        (hook/run-hook! :krro.core/current-frame-changed-hook old-frame new-frame))))
+        (hook/run-hook! :krro.core/current-frame-changed-hook
+                        this old-frame-id frame-id))))
 
   (frames [_] (vals @frames-atom))
   (split-frame! [this direction {:keys [ratio reversed?]}]
@@ -59,7 +63,13 @@
             (when-let [next-id (first (window-layout/all-frames new-layout))]
               (win/set-current-frame! this next-id)))))))
 
-
+  (set-split-ratio! [_ path ratio]
+    (when (and (number? ratio) (< 0 ratio 1))
+      (swap! layout-atom
+             (fn [layout]
+               (-> layout
+                   (update-in (conj path 1) assoc :ratio (double ratio))
+                   window-layout/invalidate-aabbs)))))
   ;; 窗口元数据全部委托给 native
   (window-title [_] (when native (win/native-title native)))
   (set-window-title! [_ title] (when native (win/native-set-title! native title)))
