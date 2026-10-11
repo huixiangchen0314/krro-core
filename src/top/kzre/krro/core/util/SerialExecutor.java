@@ -122,7 +122,15 @@ public final class SerialExecutor implements AsyncExecutor, AutoCloseable {
     /**
      * 获取执行工作线程id
      */
+    @Deprecated
     public long getTheadId(){
+        return this.worker.getId();
+    }
+
+    /**
+     * 获取执行工作线程id
+     */
+    public long getThreadId(){
         return this.worker.getId();
     }
     /**
