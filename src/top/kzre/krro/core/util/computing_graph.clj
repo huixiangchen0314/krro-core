@@ -44,7 +44,11 @@
 
   (compute [_ inputs]
     "根据 inputs 计算——inputs 与 dependents 同序。
-     返回 Promise<value> 或 value。"))
+     返回 Promise<value> 或 value。")
+  (release [_ value]
+    "释放节点结果 value。当结果不再被任何下游消费者需要时调用。
+     sink 节点不会被调用 release。
+     实现应保证幂等 + 不抛——内部异常会被静默吞掉。"))
 
 ;; ═══════════════════════════════════════════════
 ;; 默认实现——Node record
@@ -80,7 +84,11 @@
 ;;  :reverse-deps {node-id → #{依赖它的 node-id}}
 ;;  :in-degree    {node-id → 依赖数}
 ;;  :initial-ready #{node-id in-degree 为 0}}
-(defrecord ComputingGraph [nodes reverse-deps in-degree initial-ready])
+(defrecord ComputingGraph
+  [nodes
+   reverse-deps
+   in-degree
+   initial-ready])
 
 (defn nodes [^ComputingGraph graph]
   (:nodes graph))
@@ -222,6 +230,16 @@
     (-> (promise/all ps)
         (promise/fmap (fn [pairs] (into {} pairs))))))
 
+(defn- release-safely
+  "调用节点的 release——吞掉所有异常。
+
+   release 是清理路径——失败不应中断求解——
+   资源泄漏由上层观测（如 atlas 使用率）另行处理。"
+  [n v]
+  (try
+    (release n v)
+    (catch Throwable _)))
+
 ;; ═══════════════════════════════════════════════
 ;; 求解——主循环
 ;; ═══════════════════════════════════════════════
@@ -236,35 +254,49 @@
      4. in-degree 变 0 → 加入下一轮 ready
    直到 remaining 为 0——返回全部结果。
 
+   ── 资源释放 ──
+
+   每个节点的 ref-count = 依赖它的节点数。依赖它的节点每完成一个——
+   ref-count 减 1——归零时调用 release 释放该节点结果背后的资源。
+
+   results 表不移除条目——释放的是资源而非引用。sink 节点（没有下游）
+   ref-count 恒为 0——不被任何完成事件消费——自然不触发 release。
+
    如果某轮 ready 为空但 remaining 非空——说明存在循环依赖
    （DAG 不允许）——抛 ex-info。
 
    错误传播：任一节点 compute 失败——整批失败——最终 Promise
-   rejected——ex-info 的 :node-id 标明失败节点。"
+   rejected——ex-info 的 :node-id 标明失败节点。
+
+   release 失败被静默吞掉——不中断求解。"
   [^ComputingGraph graph]
-  (let [{:keys [nodes reverse-deps in-degree initial-ready]} graph]
-    (ploop [state {:results   {}
-                   :in-degree in-degree
-                   :ready     initial-ready
-                   :remaining (count nodes)}]
-           (let [{:keys [results in-degree ready remaining]} state]
+  (let [{:keys [nodes reverse-deps in-degree initial-ready]} graph
+        ;; 初始引用计数——谁依赖我
+        initial-ref-counts
+        (reduce-kv
+          (fn [acc nid _]
+            (assoc acc nid (count (get reverse-deps nid #{}))))
+          {}
+          nodes)]
+    (ploop [state {:results    {}
+                   :in-degree  in-degree
+                   :ready      initial-ready
+                   :ref-counts initial-ref-counts
+                   :remaining  (count nodes)}]
+           (let [{:keys [results in-degree ready ref-counts remaining]} state]
              (if (zero? remaining)
-               ;; 完成——返回结果
                results
                (if (empty? ready)
-                 ;; 卡住——循环依赖
                  (throw (ex-info "computing graph stuck: cycle detected"
                                  {:remaining  remaining
                                   :computed   (set (keys results))
                                   :unresolved (set/difference
                                                 (set (keys nodes))
                                                 (set (keys results)))}))
-                 ;; 并行计算这一批 ready——递归
                  (-> (compute-batch nodes ready results)
                      (promise/fmap
                        (fn [new-results]
                          (let [completed-ids (keys new-results)
-                               ;; 每个完成的节点——reverse-deps 的 in-degree 减 1
                                in-degree'   (reduce
                                               (fn [acc nid]
                                                 (reduce (fn [a rnid]
@@ -273,16 +305,34 @@
                                                         (get reverse-deps nid #{})))
                                               in-degree
                                               completed-ids)
-                               ;; in-degree 变 0 的节点——加入 ready
+                               results'     (merge results new-results)
+                               ;; 本轮完成的节点消费了各自的 dependencies——
+                               ;; 对每个 dep 递减 ref-count——归零即 release
+                               ref-counts'
+                               (reduce
+                                 (fn [rc nid]
+                                   (reduce
+                                     (fn [rc* dep]
+                                       (let [new-rc (dec (get rc* dep))]
+                                         (when (zero? new-rc)
+                                           (release-safely
+                                             (get nodes dep)
+                                             (get results' dep)))
+                                         (assoc rc* dep new-rc)))
+                                     rc
+                                     (dependencies (get nodes nid))))
+                                 ref-counts
+                                 completed-ids)
                                newly-ready  (into #{}
                                                   (filter #(zero? (get in-degree' %)))
                                                   (mapcat #(get reverse-deps % #{})
                                                           completed-ids))]
                            (precur
-                             {:results   (merge results new-results)
-                              :in-degree in-degree'
-                              :ready     newly-ready
-                              :remaining (- remaining (count completed-ids))})))))))))))
+                             {:results    results'
+                              :in-degree  in-degree'
+                              :ready      newly-ready
+                              :ref-counts ref-counts'
+                              :remaining  (- remaining (count completed-ids))})))))))))))
 
 
 
