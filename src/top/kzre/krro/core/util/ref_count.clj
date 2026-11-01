@@ -51,23 +51,20 @@
 
 (defn- acquire*
   "auto-init? 为 true 时 key 不存在则创建；false 时 key 不存在则抛异常。"
-  [key on-release auto-init?]
+  [key resource-closure auto-init?]
   (let [released?  (atom false)
         release-fn (fn []
                      (when (compare-and-set! released? false true)
                        (release key)))]
     (locking lock*
-      (if-let [{existing :on-release} (get @counts-atom key)]
-        (do
-          (when (and on-release (not (identical? on-release existing)))
-            (throw (ex-info "ref-count: acquire with a different on-release"
-                            {:key      key
-                             :existing existing
-                             :incoming on-release})))
-          (swap! counts-atom update-in [key :count] inc))
+      (if (get @counts-atom key)
+        (swap! counts-atom update-in [key :count] inc)
         (if auto-init?
-          (swap! counts-atom assoc key {:count 1 :on-release on-release})
-          (throw (ex-info "ref-count: acquire on unknown key; use (acquire key on-release) to create it first"
+          (swap! counts-atom assoc key
+                 {:key key
+                  :count 1
+                  :on-release (resource-closure)})
+          (throw (ex-info "ref-count: acquire on unknown key; use (acquire key resource-closure) to create it first"
                           {:key key})))))
     release-fn))
 
@@ -83,7 +80,7 @@
   ([key resource-closure]
    (when-not (ifn? resource-closure)
      (throw (ex-info "ref-count: resource-closure must be a function (use (acquire key) for count-only acquire)"
-                     {:key key :on-release resource-closure})))
+                     {:key key :resource-closure resource-closure})))
    (acquire* key resource-closure true)))
 
 
