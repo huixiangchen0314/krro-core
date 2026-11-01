@@ -1,5 +1,6 @@
 package top.kzre.krro.core.util;
 
+import java.util.Arrays;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -157,6 +158,9 @@ public final class SerialExecutor implements AsyncExecutor, AutoCloseable {
                 T result = task.call();
                 future.complete(result);
             } catch (Throwable t) {
+                System.err.println("SerialExecutor task failed: \n"
+                        + t.getMessage() + "\n"
+                        + Arrays.toString(t.getStackTrace()));
                 future.completeExceptionally(t);
             }
         }, future);
