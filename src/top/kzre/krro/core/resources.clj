@@ -2,14 +2,14 @@
   (:require [top.kzre.krro.core.resource :as res]))
 
 ;; ── 数组类常量（避免重复 Class/forName） ──────────
-(defonce float-array-class   (Class/forName "[F"))
-(defonce int-array-class     (Class/forName "[I"))
-(defonce double-array-class  (Class/forName "[D"))
-(defonce long-array-class    (Class/forName "[J"))
-(defonce short-array-class   (Class/forName "[S"))
-(defonce byte-array-class    (Class/forName "[B"))
-(defonce boolean-array-class (Class/forName "[Z"))
-(defonce char-array-class    (Class/forName "[C"))
+(defonce ^:const float-array-class   (Class/forName "[F"))
+(defonce ^:const int-array-class     (Class/forName "[I"))
+(defonce ^:const double-array-class  (Class/forName "[D"))
+(defonce ^:const long-array-class    (Class/forName "[J"))
+(defonce ^:const short-array-class   (Class/forName "[S"))
+(defonce ^:const byte-array-class    (Class/forName "[B"))
+(defonce ^:const boolean-array-class (Class/forName "[Z"))
+(defonce ^:const char-array-class    (Class/forName "[C"))
 
 ;; ── 注册编解码器，直接使用 Class 作为 pred ──────────
 (res/reg-resource :float-array
